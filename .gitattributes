@@ -1,0 +1,9 @@
+# Let git normalise line endings for source and config, but never touch binaries.
+* text=auto
+
+*.dll binary
+*.png binary
+*.dds binary
+
+# Shell-executed in CI, must stay LF.
+*.yml text eol=lf

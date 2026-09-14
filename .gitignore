@@ -1,0 +1,24 @@
+# Release packaging output
+build/
+dist/
+*.zip
+
+# Build leftovers (the plugin DLL in KSPTethers/Plugins is committed on purpose)
+*.pdb
+*.mdb
+*.suo
+*.user
+obj/
+bin/
+.vs/
+
+# Written by the game at runtime (the player's toolbar-app choices)
+KSPTethers/PluginData/
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Claude Code local settings (machine-specific paths, not portable)
+.claude/

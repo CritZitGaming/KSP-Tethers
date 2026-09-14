@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Offline tests for the rope solver and tube mesh builder: dotnet run -c Release -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>RopeSimTests</AssemblyName>
+    <RootNamespace>KSPTethers.Tests</RootNamespace>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <KSPRoot Condition="'$(KSPRoot)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program</KSPRoot>
+    <KSPManaged>$(KSPRoot)\KSP_x64_Data\Managed</KSPManaged>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Source\RopeSimulation.cs" Link="Linked\RopeSimulation.cs" />
+    <Compile Include="..\..\Source\TubeMeshBuilder.cs" Link="Linked\TubeMeshBuilder.cs" />
+    <Compile Include="..\..\Source\CablePatterns.cs" Link="Linked\CablePatterns.cs" />
+    <Compile Include="..\..\Source\ResourceExchange.cs" Link="Linked\ResourceExchange.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Only Unity's managed math types are used, so the module can be loaded outside the engine. -->
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(KSPManaged)\UnityEngine.CoreModule.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="System.Drawing" />
+  </ItemGroup>
+
+</Project>

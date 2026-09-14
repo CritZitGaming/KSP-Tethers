@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    KSP Tethers - build with:  dotnet build Source/KSPTethers.csproj -c Release
+    Override the game location with:  -p:KSPRoot="D:\Games\Kerbal Space Program"
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <AssemblyName>KSPTethers</AssemblyName>
+    <RootNamespace>KSPTethers</RootNamespace>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Product>KSP Tethers</Product>
+    <Company>CritZitGaming</Company>
+    <Copyright>Copyright (c) 2026 CritZitGaming</Copyright>
+    <Description>Dynamic, flowing EVA tethers and ship-to-ship cables for Kerbal Space Program</Description>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Nullable>disable</Nullable>
+    <DebugType>portable</DebugType>
+    <Deterministic>true</Deterministic>
+    <!-- Record neutral source/PDB paths in the DLL instead of the builder's local folders. -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))=/_/</PathMap>
+    <DisableImplicitFrameworkReferences>false</DisableImplicitFrameworkReferences>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <KSPRoot Condition="'$(KSPRoot)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program</KSPRoot>
+    <KSPManaged>$(KSPRoot)\KSP_x64_Data\Managed</KSPManaged>
+    <ModGameData>$(MSBuildThisFileDirectory)..\KSPTethers</ModGameData>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp"><HintPath>$(KSPManaged)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(KSPManaged)\Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(KSPManaged)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(KSPManaged)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.PhysicsModule"><HintPath>$(KSPManaged)\UnityEngine.PhysicsModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(KSPManaged)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AudioModule"><HintPath>$(KSPManaged)\UnityEngine.AudioModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.AnimationModule"><HintPath>$(KSPManaged)\UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(KSPManaged)\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(KSPManaged)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(KSPManaged)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(KSPManaged)\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- Copy the built plugin straight into the mod's GameData folder inside this repo. -->
+  <Target Name="CopyToModFolder" AfterTargets="Build">
+    <MakeDir Directories="$(ModGameData)\Plugins" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ModGameData)\Plugins" />
+    <Copy SourceFiles="$(TargetDir)$(TargetName).pdb" DestinationFolder="$(ModGameData)\Plugins" Condition="Exists('$(TargetDir)$(TargetName).pdb')" />
+  </Target>
+
+</Project>

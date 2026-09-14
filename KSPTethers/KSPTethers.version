@@ -1,0 +1,29 @@
+{
+	"NAME": "KSP Tethers",
+	"URL": "https://raw.githubusercontent.com/CritZitGaming/KSP-Tethers/main/KSPTethers/KSPTethers.version",
+	"DOWNLOAD": "https://github.com/CritZitGaming/KSP-Tethers/releases/latest",
+	"GITHUB": {
+		"USERNAME": "CritZitGaming",
+		"REPOSITORY": "KSP-Tethers"
+	},
+	"VERSION": {
+		"MAJOR": 1,
+		"MINOR": 0,
+		"PATCH": 0
+	},
+	"KSP_VERSION": {
+		"MAJOR": 1,
+		"MINOR": 12,
+		"PATCH": 5
+	},
+	"KSP_VERSION_MIN": {
+		"MAJOR": 1,
+		"MINOR": 12,
+		"PATCH": 0
+	},
+	"KSP_VERSION_MAX": {
+		"MAJOR": 1,
+		"MINOR": 12,
+		"PATCH": 99
+	}
+}

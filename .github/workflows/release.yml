@@ -1,0 +1,105 @@
+name: Release
+
+# Tag a commit as e.g. v1.0.0 and push the tag. This builds the drop-in zip that CKAN's GitHub indexer
+# looks for and attaches it to a GitHub release.
+#
+# The plugin itself is not compiled here: building it needs KSP's own assemblies, which are proprietary
+# and cannot live in CI. KSPTethers/Plugins/KSPTethers.dll is committed, built locally with
+# Tools/Build.ps1 (which also runs the offline test suite), and the checks below refuse to publish a
+# release whose DLL does not carry the version being tagged.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build, without the leading v (e.g. 1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION"
+
+      - name: Check KSPTethers.version agrees with the tag
+        run: |
+          AVC=$(python3 -c "import json;v=json.load(open('KSPTethers/KSPTethers.version'))['VERSION'];print('%d.%d.%d'%(v['MAJOR'],v['MINOR'],v['PATCH']))")
+          if [ "$AVC" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::KSPTethers.version says $AVC but the tag says ${{ steps.ver.outputs.version }}. CKAN reads both; they must match."
+            exit 1
+          fi
+
+      - name: Check the project version agrees with the tag
+        run: |
+          PROJ=$(sed -n 's:.*<Version>\([0-9][0-9.]*\)</Version>.*:\1:p' Source/KSPTethers.csproj | head -1)
+          if [ "$PROJ" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::Source/KSPTethers.csproj says $PROJ but the tag says ${{ steps.ver.outputs.version }}."
+            exit 1
+          fi
+          KSPA=$(sed -n 's/.*KSPAssembly("KSPTethers", *\([0-9]*\), *\([0-9]*\), *\([0-9]*\)).*/\1.\2.\3/p' Source/Properties/AssemblyInfo.cs | head -1)
+          if [ "$KSPA" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::error::The KSPAssembly attribute says $KSPA but the tag says ${{ steps.ver.outputs.version }}."
+            exit 1
+          fi
+
+      - name: Check the committed DLL was rebuilt for this version
+        run: |
+          DLL=KSPTethers/Plugins/KSPTethers.dll
+          test -f "$DLL" || { echo "::error::$DLL is missing. Run Tools/Build.ps1 and commit the result."; exit 1; }
+          # AssemblyFileVersion is stored as a literal string in the attribute blob, so a DLL built
+          # before the version bump will not contain the new one.
+          if ! grep -qa "${{ steps.ver.outputs.version }}.0" "$DLL"; then
+            echo "::error::$DLL does not carry version ${{ steps.ver.outputs.version }}. Rebuild it with Tools/Build.ps1 and commit before tagging."
+            exit 1
+          fi
+
+      - name: Build zip
+        run: |
+          mkdir -p build/staging
+          cp -r KSPTethers build/staging/
+          rm -rf build/staging/KSPTethers/PluginData
+          find build/staging -name '*.pdb' -delete
+          cp README.md LICENSE CHANGELOG.md build/staging/
+          cd build/staging
+          zip -r "../KSPTethers-${{ steps.ver.outputs.version }}.zip" \
+            KSPTethers README.md LICENSE CHANGELOG.md
+          cd ..
+          unzip -l "KSPTethers-${{ steps.ver.outputs.version }}.zip"
+
+      - name: Release notes from the changelog
+        run: |
+          # The section under "## <version>" in CHANGELOG.md, up to the next heading.
+          awk -v v="## ${{ steps.ver.outputs.version }}" '
+            $0 == v { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md > build/notes.md
+          cat build/notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -s build/notes.md ]; then NOTES=(--notes-file build/notes.md); else NOTES=(--generate-notes); fi
+          gh release create "v${{ steps.ver.outputs.version }}" \
+            "build/KSPTethers-${{ steps.ver.outputs.version }}.zip" \
+            --title "KSP Tethers ${{ steps.ver.outputs.version }}" \
+            "${NOTES[@]}" \
+            || gh release upload "v${{ steps.ver.outputs.version }}" \
+                 "build/KSPTethers-${{ steps.ver.outputs.version }}.zip" --clobber
