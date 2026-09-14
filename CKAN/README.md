@@ -1,7 +1,10 @@
 # CKAN metadata
 
-**KSP Tethers has been submitted to CKAN and is waiting for review.** Until the submission is merged, install
-it manually from the [Releases](https://github.com/CritZitGaming/KSP-Tethers/releases) page.
+**KSP Tethers has been submitted to CKAN and is waiting for review.** The submission is
+[KSP-CKAN/NetKAN#11554](https://github.com/KSP-CKAN/NetKAN/pull/11554), opened on 2026-09-14; its automated
+inflate check passed (version 1.0.0, KSP 1.12.0 to 1.12.99, MIT). Until it is merged, install manually from the
+[Releases](https://github.com/CritZitGaming/KSP-Tethers/releases) page. When it is merged, remove the pending
+notice from the main README.
 
 ## Where the real metadata lives
 

@@ -29,8 +29,9 @@ keep a kerbal's suit topped up with power and life support, and take the waste b
 
 ### CKAN
 
-> **CKAN listing pending.** KSP Tethers has been submitted to CKAN and is waiting for review. Until it is
-> listed, install it manually.
+> **CKAN listing pending.** KSP Tethers has been submitted to CKAN
+> ([KSP-CKAN/NetKAN#11554](https://github.com/KSP-CKAN/NetKAN/pull/11554)) and is waiting for review. Until it
+> is listed, install it manually.
 
 Once it is listed, search for **KSP Tethers** and install. CKAN pulls in Module Manager for you.
 
