@@ -9,9 +9,17 @@ namespace KSPTethers
     /// </summary>
     internal struct RopeContact
     {
+        /// <summary>Nothing was touched.</summary>
+        public const int Nothing = -1;
+        /// <summary>The ground, or scenery fixed to it: a rope resting here can bed into it.</summary>
+        public const int Ground = -2;
+
         public Vector3 Point;
         public Vector3 Normal;
-        /// <summary>Solver-defined id of what was touched (used to find where the rope wraps a vessel).</summary>
+        /// <summary>
+        /// Solver-defined id of what was touched (used to find where the rope wraps a vessel), or one of
+        /// <see cref="Nothing"/> and <see cref="Ground"/>.
+        /// </summary>
         public int Body;
     }
 
@@ -51,6 +59,9 @@ namespace KSPTethers
         public float IdleFlow;       // m/s^2
         public float Friction;       // Coulomb coefficient
         public float SelfThickness;  // m: closest two parts of the rope may come (0 = no self-collision)
+        public bool SurfaceCutouts;  // rope that has bedded into the ground ignores what passes over it
+        public float SettleTime;     // s of lying still on the ground before it beds in
+        public float SettleGrip;     // m of pull per substep a bedded node resists before letting go
         public int Iterations;
         public float SubstepRate;    // Hz
     }
@@ -93,6 +104,14 @@ namespace KSPTethers
 
         private readonly bool[] stuck;
         private readonly float[] grip;
+        // Nodes that have bedded into the ground: held exactly where they lie, and not offered to the
+        // collider at all, so a rover or a kerbal passing over leaves the cable's shape alone.
+        private readonly bool[] laid;
+        private readonly float[] settleTimer;
+        private readonly Vector3[] settleFrom;
+        private readonly Vector3[] laidAt;
+        private readonly Vector3[] laidPoint;
+        private readonly Vector3[] laidNormal;
         private readonly Vector3[] contactNormal;
         private readonly Vector3[] contactPoint;
         private readonly bool[] hasContact;
@@ -124,6 +143,12 @@ namespace KSPTethers
             Prev = new Vector3[MaxNodes];
             stuck = new bool[MaxNodes];
             grip = new float[MaxNodes];
+            laid = new bool[MaxNodes];
+            settleTimer = new float[MaxNodes];
+            settleFrom = new Vector3[MaxNodes];
+            laidAt = new Vector3[MaxNodes];
+            laidPoint = new Vector3[MaxNodes];
+            laidNormal = new Vector3[MaxNodes];
             contactNormal = new Vector3[MaxNodes];
             contactPoint = new Vector3[MaxNodes];
             hasContact = new bool[MaxNodes];
@@ -141,6 +166,18 @@ namespace KSPTethers
             dense = new Vector3[(MaxNodes - 1) * DenseFactor + 1];
             denseArc = new float[dense.Length];
             flowSeed = seed;
+        }
+
+        /// <summary>Number of nodes that have bedded into the ground.</summary>
+        public int LaidCount
+        {
+            get
+            {
+                int n = 0;
+                for (int i = 0; i < Count; i++)
+                    if (laid[i]) n++;
+                return n;
+            }
         }
 
         /// <summary>Number of nodes currently held by static friction.</summary>
@@ -233,6 +270,7 @@ namespace KSPTethers
                 Prev[i] = Pos[i];
                 stuck[i] = false;
                 grip[i] = 0f;
+                Unlay(i);
             }
             Pos[0] = a;
             Pos[segs] = b;
@@ -284,6 +322,7 @@ namespace KSPTethers
             Pos[last + 1] = Pos[last];
             Prev[last + 1] = Prev[last];
             stuck[last + 1] = false;
+            Unlay(last + 1);
             // The new node emerges from the anchor, on the line towards the previous node.
             Vector3 anchor = Pos[last + 1];
             Vector3 toward = Pos[last - 1] - anchor;
@@ -294,6 +333,7 @@ namespace KSPTethers
             Prev[last] = Prev[last + 1] + dir * off;
             stuck[last] = false;
             grip[last] = 0f;
+            Unlay(last);
             Count++;
         }
 
@@ -304,6 +344,8 @@ namespace KSPTethers
             Prev[last - 1] = Prev[last];
             stuck[last - 1] = false;
             stuck[last - 2] = false;
+            Unlay(last - 1);
+            Unlay(last - 2);
             Count--;
         }
 
@@ -315,6 +357,12 @@ namespace KSPTethers
             Array.Reverse(stuck, 0, Count);
             Array.Reverse(grip, 0, Count);
             Array.Reverse(contactNormal, 0, Count);
+            Array.Reverse(laid, 0, Count);
+            Array.Reverse(settleTimer, 0, Count);
+            Array.Reverse(settleFrom, 0, Count);
+            Array.Reverse(laidAt, 0, Count);
+            Array.Reverse(laidPoint, 0, Count);
+            Array.Reverse(laidNormal, 0, Count);
             Vector3 t = lastA;
             lastA = lastB;
             lastB = t;
@@ -327,6 +375,11 @@ namespace KSPTethers
             {
                 Pos[i] += delta;
                 Prev[i] += delta;
+                if (laid[i])
+                {
+                    laidAt[i] += delta;
+                    laidPoint[i] += delta;
+                }
             }
             lastA += delta;
             lastB += delta;
@@ -352,7 +405,10 @@ namespace KSPTethers
             if (collider == null)
             {
                 for (int i = 0; i < Count; i++)
+                {
                     stuck[i] = false;
+                    Unlay(i);
+                }
             }
 
             dt = Math.Min(dt, 0.1f);
@@ -425,7 +481,7 @@ namespace KSPTethers
                 // Contacts get the last word: an over-stretched rope may stretch round a hull, never cut through it.
                 if (collider != null)
                 {
-                    ReleaseOverloadedGrips(p.Friction);
+                    ReleaseOverloadedGrips(p.Friction, p.SurfaceCutouts ? Math.Max(0f, p.SettleGrip) : 0f);
                     SolveMidpoints(p.PinA, p.PinB);
                     FinishContacts(p.Friction);
                 }
@@ -434,6 +490,11 @@ namespace KSPTethers
                 if (p.PinB) Pos[last] = b;
                 PinSpool(b, p.DirB);
             }
+
+            if (collider != null && p.SurfaceCutouts)
+                UpdateSettling(dt, p.SettleTime);
+            else
+                ClearLaid();
 
             lastA = p.A;
             lastB = p.B;
@@ -672,7 +733,7 @@ namespace KSPTethers
         /// A gripping node lets go when the pull of its neighbours along the surface exceeds what its contact
         /// can hold (the grip, measured as how hard the contact pushes back each substep).
         /// </summary>
-        private void ReleaseOverloadedGrips(float friction)
+        private void ReleaseOverloadedGrips(float friction, float bedGrip)
         {
             int last = Count - 1;
             float rest = Rest, spool = LastRest;
@@ -695,14 +756,17 @@ namespace KSPTethers
                 }
                 Vector3 n = contactNormal[i];
                 float pn = pull.x * n.x + pull.y * n.y + pull.z * n.z;
-                if (pn > 0f)
+                // A node bedded into the ground holds on until something really pulls at it; one that is
+                // merely resting lets go as soon as it is lifted at all, exactly as before.
+                float hold = laid[i] ? bedGrip : 0f;
+                if (pn > hold)
                 {
                     // Lifted away from the surface.
                     stuck[i] = false;
                     continue;
                 }
                 pull.x -= n.x * pn; pull.y -= n.y * pn; pull.z -= n.z * pn;
-                float limit = friction * grip[i];
+                float limit = friction * Math.Max(grip[i], hold);
                 if (pull.x * pull.x + pull.y * pull.y + pull.z * pull.z > limit * limit)
                     stuck[i] = false;
             }
@@ -729,6 +793,22 @@ namespace KSPTethers
                 hasContact[last - 1] = false;
             for (int i = 1; i <= end; i++)
             {
+                if (laid[i])
+                {
+                    // Bedded in: not offered to the collider at all, so nothing passing over it can move it.
+                    // It keeps the ground plane it settled on, and is let go the moment the rope's own pull
+                    // breaks its grip.
+                    if (stuck[i])
+                    {
+                        hasContact[i] = true;
+                        contactPoint[i] = laidPoint[i];
+                        contactNormal[i] = laidNormal[i];
+                        contactBody[i] = RopeContact.Ground;
+                        contactDepth[i] = 0f;
+                        continue;
+                    }
+                    Unlay(i);
+                }
                 RopeContact c;
                 if (collider.Probe(i, last, Pos[i], Prev[i], Pos[i - 1], Pos[i + 1], finalSubstep, out c))
                 {
@@ -756,6 +836,8 @@ namespace KSPTethers
                 midHas[i] = false;
                 if (!hasContact[i] && !hasContact[i + 1])
                     continue;
+                if (laid[i] && laid[i + 1])
+                    continue;   // a bedded-in span is not probed either
                 RopeContact c;
                 Vector3 m = (Pos[i] + Pos[i + 1]) * 0.5f;
                 Vector3 mp = (Prev[i] + Prev[i + 1]) * 0.5f;
@@ -818,6 +900,18 @@ namespace KSPTethers
             for (int i = 1; i < last; i++)
             {
                 touching[i] = false;
+                if (laid[i])
+                {
+                    if (stuck[i])
+                    {
+                        // Held exactly where it lies: this is what keeps the cable's shape unchanged.
+                        touching[i] = true;
+                        Pos[i] = laidAt[i];
+                        Prev[i] = laidAt[i];
+                        continue;
+                    }
+                    Unlay(i);
+                }
                 if (!hasContact[i])
                     continue;
                 Vector3 n = contactNormal[i];
@@ -860,6 +954,64 @@ namespace KSPTethers
                 dn = Vector3.Dot(Pos[i] - Prev[i], n);
                 if (dn < 0f)
                     Prev[i] += n * dn;
+            }
+        }
+
+        /// <summary>How fast a node may still be moving and count as lying still, in m/s.</summary>
+        private const float SettleSpeed = 0.08f;
+
+        private void Unlay(int i)
+        {
+            laid[i] = false;
+            settleTimer[i] = 0f;
+            settleFrom[i] = Pos[i];
+        }
+
+        private void ClearLaid()
+        {
+            for (int i = 0; i < Count; i++)
+                Unlay(i);
+        }
+
+        /// <summary>
+        /// Once a node has lain still on the ground for long enough it beds in, and from then on the collider
+        /// is not asked about it: a rover driving over the cable, or a kerbal walking along it, goes past
+        /// without dragging it out of shape. The rope's own pull still lifts it, because that releases the
+        /// grip holding it (see <see cref="ReleaseOverloadedGrips"/>), which un-beds it on the next substep.
+        /// </summary>
+        private void UpdateSettling(float dt, float settleTime)
+        {
+            int last = Count - 1;
+            settleTime = Math.Max(0f, settleTime);
+            for (int i = 1; i < last; i++)
+            {
+                if (laid[i])
+                {
+                    if (!stuck[i])
+                        Unlay(i);
+                    continue;
+                }
+                if (!touching[i] || contactBody[i] != RopeContact.Ground)
+                {
+                    settleTimer[i] = 0f;
+                    settleFrom[i] = Pos[i];
+                    continue;
+                }
+                // Lying on the ground and going nowhere. Static friction flickers on and off from substep to
+                // substep and the odd node twitches, so the timer is wound back rather than reset: what counts
+                // is that the node has all but stopped, not that it never moved.
+                float crawl = SettleSpeed * dt;
+                bool still = (Pos[i] - settleFrom[i]).sqrMagnitude < crawl * crawl;
+                settleFrom[i] = Pos[i];
+                settleTimer[i] = still ? settleTimer[i] + dt : Math.Max(0f, settleTimer[i] - dt * 3f);
+                if (settleTimer[i] >= settleTime)
+                {
+                    laid[i] = true;
+                    stuck[i] = true;
+                    laidAt[i] = Pos[i];
+                    laidPoint[i] = contactPoint[i];
+                    laidNormal[i] = contactNormal[i];
+                }
             }
         }
 

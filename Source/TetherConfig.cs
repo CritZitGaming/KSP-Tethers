@@ -43,6 +43,9 @@ namespace KSPTethers
         public bool collisions = true;
         public bool selfCollision = true;      // the rope can't pass through itself
         public bool wrapAroundHulls = true;    // a rope draped round the ship pulls from where it touches the hull
+        public bool surfaceCutouts = true;     // rope bedded into the ground ignores what drives or walks over it
+        public float settleTime = 0.6f;        // s of lying still on the ground before it beds in
+        public float settleGrip = 0.003f;      // how firmly a bedded cable holds (m of pull per substep)
         public float friction = 0.45f;         // Coulomb coefficient for rope on parts and terrain
         public float slackFactor = 0.35f;      // automatic pay-out keeps rope >= distance * (1 + slackFactor) + slackBase
         public float slackBase = 0.6f;
@@ -141,6 +144,9 @@ namespace KSPTethers
             n.TryGetValue("collisions", ref collisions);
             n.TryGetValue("selfCollision", ref selfCollision);
             n.TryGetValue("wrapAroundHulls", ref wrapAroundHulls);
+            n.TryGetValue("surfaceCutouts", ref surfaceCutouts);
+            n.TryGetValue("settleTime", ref settleTime);
+            n.TryGetValue("settleGrip", ref settleGrip);
             n.TryGetValue("friction", ref friction);
             n.TryGetValue("slackFactor", ref slackFactor);
             n.TryGetValue("slackBase", ref slackBase);
@@ -194,6 +200,8 @@ namespace KSPTethers
             damping = Mathf.Clamp(damping, 0f, 20f);
             endStiffness = Mathf.Clamp01(endStiffness);
             friction = Mathf.Clamp(friction, 0f, 2f);
+            settleTime = Mathf.Clamp(settleTime, 0f, 30f);
+            settleGrip = Mathf.Clamp(settleGrip, 0f, 1f);
             slackFactor = Mathf.Clamp(slackFactor, 0f, 3f);
             slackBase = Mathf.Clamp(slackBase, 0f, 10f);
             payoutSpeed = Mathf.Clamp(payoutSpeed, 0.1f, 50f);

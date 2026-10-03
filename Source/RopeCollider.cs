@@ -12,7 +12,7 @@ namespace KSPTethers
     {
         // Default (parts), Local Scenery (terrain/statics), EVA, PhysicalObjects, TerrainColliders.
         public const int Mask = (1 << 0) | (1 << 15) | (1 << 17) | (1 << 19) | (1 << 28);
-        public const int TerrainBody = -2;
+        public const int TerrainBody = RopeContact.Ground;
         private const int TerrainMask = (1 << 15) | (1 << 28);
         private const float TerrainProbe = 0.6f;
         private const float Margin = 0.08f;  // contacts are found this far ahead of the surface

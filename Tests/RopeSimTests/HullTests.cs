@@ -15,6 +15,7 @@ namespace KSPTethers.Tests
             run("over-stretched rope stays outside the hull", () => OverStretched(check));
             run("thin beam: rope pulled hard across it at 30 fps", () => ThinBeam(check));
             run("rope piling up on the ground doesn't pass through itself", () => SelfCollision(check));
+            run("a rover driving over a cable on the ground leaves its shape alone", () => DrivenOver(check));
         }
 
         /// <summary>Closest distance between two segments (used to measure self-intersection).</summary>
@@ -80,6 +81,134 @@ namespace KSPTethers.Tests
         }
 
         /// <summary>Box hull the size of a small capsule. Rope radius is folded into the half extents.</summary>
+        // ---- a cable lying on the ground, driven over --------------------------------------------
+
+        /// <summary>Flat ground at y = 0 plus a box that can be moved about above it.</summary>
+        internal sealed class GroundAndBox : IRopeCollisionSolver
+        {
+            public Vector3 BoxCentre = new Vector3(0f, 100f, 0f);
+            public Vector3 Half = new Vector3(0.6f, 0.3f, 0.6f);
+            public float Radius = 0.022f;
+            private const float Margin = 0.1f;
+
+            public bool Probe(int index, int last, Vector3 pos, Vector3 prev, Vector3 hintA, Vector3 hintB,
+                bool finalSubstep, out RopeContact contact)
+            {
+                contact = default(RopeContact);
+                // The box wins when the node is inside or near it; otherwise the ground.
+                Vector3 local = pos - BoxCentre;
+                Vector3 cp = new Vector3(Mathf.Clamp(local.x, -Half.x, Half.x), Mathf.Clamp(local.y, -Half.y, Half.y),
+                    Mathf.Clamp(local.z, -Half.z, Half.z));
+                Vector3 d = local - cp;
+                float dl = d.magnitude;
+                if (dl < Radius + Margin)
+                {
+                    Vector3 n = dl > 1e-5f ? d / dl : Vector3.up;
+                    contact = new RopeContact { Point = BoxCentre + cp + n * Radius, Normal = n, Body = 1 };
+                    return true;
+                }
+                // Ground: only probed on the final substep, exactly as the game's collider does it.
+                if (!finalSubstep || pos.y > Radius + Margin)
+                    return false;
+                contact = new RopeContact
+                {
+                    Point = new Vector3(pos.x, Radius, pos.z),
+                    Normal = Vector3.up,
+                    Body = RopeContact.Ground
+                };
+                return true;
+            }
+        }
+
+        private static void DrivenOver(Action<bool, string> check)
+        {
+            float worstWith = Run(true), worstWithout = Run(false);
+            check(worstWith < 0.02f,
+                "with cutouts the cable moves " + (worstWith * 100f).ToString("F1") + " cm as the box passes over");
+            check(worstWithout > worstWith * 3f + 0.03f,
+                "without them it is dragged " + (worstWithout * 100f).ToString("F1") + " cm");
+
+            // And the cable must still come up when the rope itself pulls: bedding in is not a weld.
+            float lifted = Lift();
+            check(lifted > 0.5f, "pulling an end still lifts the cable off the ground (" + lifted.ToString("F2") + " m)");
+        }
+
+        /// <summary>Lays 8 m of cable on the ground, lets it settle, then sweeps a box along it.</summary>
+        private static float Run(bool cutouts)
+        {
+            var solver = new GroundAndBox();
+            var rope = new RopeSimulation(120, 0.22f, 5f);
+            Vector3 a = new Vector3(-4f, 0.022f, 0f), b = new Vector3(4f, 0.022f, 0f);
+            rope.Initialize(a, b, 8.4f, Vector3.down);
+            RopeStepParams p = Program.Defaults(new Vector3(0f, -1.63f, 0f));   // the Mun
+            p.A = a;
+            p.B = b;
+            p.DirA = Vector3.right;
+            p.DirB = Vector3.left;
+            p.SurfaceCutouts = cutouts;
+            p.SettleTime = 0.6f;
+            p.SettleGrip = 0.003f;
+
+            const float dt = 1f / 60f;
+            for (int f = 0; f < 240; f++)       // four seconds to settle
+                rope.Step(dt, ref p, solver);
+
+            var settled = new Vector3[rope.Count];
+            Array.Copy(rope.Pos, settled, rope.Count);
+            Console.WriteLine("      cutouts " + (cutouts ? "on: " : "off: ") + rope.LaidCount + " of " +
+                              (rope.Count - 2) + " nodes bedded into the ground");
+
+            // A box the size of a rover wheel crosses the cable at 2 m/s.
+            float worst = 0f;
+            for (int f = 0; f < 300; f++)
+            {
+                float t = f * dt;
+                // The underside just clips the top of the cable, as a wheel rolling over it would.
+                solver.BoxCentre = new Vector3(-3f + 2f * t, solver.Half.y + 0.015f, 0f);
+                rope.Step(dt, ref p, solver);
+                for (int i = 1; i < rope.Count - 1; i++)
+                {
+                    Vector3 moved = rope.Pos[i] - settled[i];
+                    moved.y = 0f;               // squashing it down is fine; dragging it is not
+                    worst = Math.Max(worst, moved.magnitude);
+                }
+            }
+            return worst;
+        }
+
+        /// <summary>A cable bedded into the ground must still lift when its end is picked up.</summary>
+        private static float Lift()
+        {
+            var solver = new GroundAndBox();
+            var rope = new RopeSimulation(120, 0.22f, 5f);
+            Vector3 a = new Vector3(-4f, 0.022f, 0f), b = new Vector3(4f, 0.022f, 0f);
+            rope.Initialize(a, b, 8.4f, Vector3.down);
+            RopeStepParams p = Program.Defaults(new Vector3(0f, -1.63f, 0f));
+            p.A = a;
+            p.B = b;
+            p.DirA = Vector3.right;
+            p.DirB = Vector3.left;
+            p.SurfaceCutouts = true;
+            p.SettleTime = 0.6f;
+            p.SettleGrip = 0.003f;
+
+            const float dt = 1f / 60f;
+            for (int f = 0; f < 240; f++)
+                rope.Step(dt, ref p, solver);
+
+            // Hoist end A straight up well past the rope's length.
+            for (int f = 0; f < 420; f++)
+            {
+                p.A = new Vector3(-4f, 0.022f + Math.Min(6f, f * dt * 2f), 0f);
+                p.DirA = Vector3.up;
+                rope.Step(dt, ref p, solver);
+            }
+            float highest = 0f;
+            for (int i = 1; i < rope.Count - 1; i++)
+                highest = Math.Max(highest, rope.Pos[i].y);
+            return highest;
+        }
+
         internal sealed class BoxHull
         {
             public Vector3 Half = new Vector3(1.25f, 1.25f, 1.25f);

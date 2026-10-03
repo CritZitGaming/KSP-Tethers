@@ -65,6 +65,9 @@ worth keeping if you want them.
   floating origin and Krakensbane never disturb it.
 - **Collisions**: the rope rests on terrain and drapes over parts and kerbals instead of clipping through, and
   once it wraps around a ship the tether pulls from where it touches the hull, so it can't be dragged through.
+- **Cables stay put on the ground**: a cable that has settled on the surface beds into it, so a rover driving
+  over it or a kerbal walking along it passes by without dragging it out of shape. Reeling it in or picking an
+  end up still lifts it.
 - **Physical tether**: once taut, a soft spring-damper tuned to the masses on each end restrains the kerbal (or
   tows the other ship). Slack costs nothing.
 - **Reel**: pays out automatically as the kerbal moves away, and reels in to haul a kerbal back to the hatch.
@@ -196,6 +199,10 @@ be changed with ModuleManager against the `KSP_TETHERS` node. The app's choices 
   blurs the height field for the normals and again, wider, for cavity shading, and packs the result into the
   albedo-plus-specular map KSP's Bumped Specular shader wants. A flat strap's tile is folded round the
   perimeter so its selvedge edges land on the strap's real edges.
+- A node that has lain still on the ground for `settleTime` is marked as bedded in: it is pinned exactly where
+  it lies and is not offered to the collider at all, which is what lets things pass over a cable without
+  moving it. `settleGrip` is how hard the rope has to pull before that grip breaks and the node rejoins the
+  simulation.
 - `ModuleTetherPort` is a tether point: it finds where a cable should leave a part (a KAS socket, a named
   transform, an attach node) and holds the editor rigging that launches a craft with a cable already strung.
 - `ResourceExchange` holds the lifeline rules; `TetherResources` applies them to suits and vessels.

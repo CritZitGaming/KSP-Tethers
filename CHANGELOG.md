@@ -16,6 +16,12 @@
 - **Flat tethers.** Two new styles, **Blue Flat Tether** (herringbone weave with woven-in stripes, in the
   Russian style) and **White Flat Tether**, are flat 25 mm straps rather than round cables: the mesh has a flat
   cross-section and the weave wraps round it so the selvedge edges land on the strap's real edges.
+- **Cable lying on the ground beds in.** A cable that has lain still on the surface for a moment is held
+  exactly where it lies and is no longer offered to the collision solver at all, so a rover driving over it or
+  a kerbal walking along it passes by without dragging it out of shape. The rope's own pull still lifts it:
+  reeling, or picking an end up, breaks the grip and the cable comes free as normal. Tune or switch it off
+  with `surfaceCutouts`, `settleTime` and `settleGrip` in `Settings.cfg`. A bedded cable also stops the faint
+  shimmer a resting rope used to have.
 - **Tether points.** Docking ports, claws, ladders, crewed parts and - with KAS installed - winches, ports and
   pylons gain a tether point. A kerbal can clip on with one right-click, and the cable leaves a KAS part from
   the same socket KAS runs its own cable from.

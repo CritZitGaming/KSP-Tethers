@@ -747,6 +747,9 @@ namespace KSPTethers
                 IdleFlow = cfg.idleFlow,
                 Friction = cfg.friction,
                 SelfThickness = cfg.selfCollision ? radius * 2f : 0f,
+                SurfaceCutouts = cfg.surfaceCutouts,
+                SettleTime = cfg.settleTime,
+                SettleGrip = cfg.settleGrip,
                 Iterations = cfg.solverIterations,
                 SubstepRate = cfg.substepRate
             };
