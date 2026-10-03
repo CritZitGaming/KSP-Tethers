@@ -22,6 +22,7 @@
     <Compile Include="..\..\Source\TubeMeshBuilder.cs" Link="Linked\TubeMeshBuilder.cs" />
     <Compile Include="..\..\Source\CablePatterns.cs" Link="Linked\CablePatterns.cs" />
     <Compile Include="..\..\Source\ResourceExchange.cs" Link="Linked\ResourceExchange.cs" />
+    <Compile Include="..\..\Source\TetherTension.cs" Link="Linked\TetherTension.cs" />
   </ItemGroup>
 
   <ItemGroup>

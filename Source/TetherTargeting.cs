@@ -45,7 +45,7 @@ namespace KSPTethers
                 Stop();
             Active = true;
             handOff = handingOff;
-            float reach = TetherGameSettings.Current.clipReach;
+            float reach = TetherGameSettings.Current.clipReach * TetherCheatSettings.Current.ClipReach;
             string key = TetherUserSettings.Instance.toggleKey.ToString();
             prompt = ScreenMessages.PostScreenMessage(handOff
                     ? "Click a part within " + reach.ToString("F1") + " m to clip your end there (a cable between the two), or a kerbal to hand it over  -  [" + key + "] nearest part  -  right-click to cancel"

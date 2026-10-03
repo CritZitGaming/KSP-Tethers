@@ -6,6 +6,8 @@ namespace KSPTethers
     internal struct TubeBuildParams
     {
         public float Radius;
+        /// <summary>Thickness as a fraction of the width: 1 is a round cable, less is a flat strap.</summary>
+        public float Aspect;
         public int Sides;
         public int Subdivisions;
         public float VPerMeter;          // texture V units per metre of rope
@@ -42,9 +44,13 @@ namespace KSPTethers
 
         private Vector3[] curve = new Vector3[0];
         private Vector3[] curveTan = new Vector3[0];
-        private float[] cosTable = new float[0];
-        private float[] sinTable = new float[0];
+        // Cross-section tables: position offset, surface normal and surface tangent at each step around it.
+        private float[] pCos = new float[0], pSin = new float[0];
+        private float[] nCos = new float[0], nSin = new float[0];
+        private float[] tCos = new float[0], tSin = new float[0];
         private int tableSides = -1;
+        private float tableAspect = -1f;
+        private bool round = true;
         private int builtRings = -1;
         private int builtSides = -1;
         private int builtFittingMask = -1;
@@ -100,7 +106,7 @@ namespace KSPTethers
 
         private void BuildRope(int rings, int sides, ref TubeBuildParams p)
         {
-            EnsureTrigTable(sides);
+            EnsureTrigTable(sides, p.Aspect > 0f ? Mathf.Clamp(p.Aspect, 0.05f, 1f) : 1f);
             float radius = p.Radius;
             float invSides = 1f / sides;
             Vector3 n = p.RefUpA - curveTan[0] * Vector3.Dot(p.RefUpA, curveTan[0]);
@@ -136,15 +142,37 @@ namespace KSPTethers
                 float by = t.z * n.x - t.x * n.z;
                 float bz = t.x * n.y - t.y * n.x;
                 float v = arc * p.VPerMeter;
-                for (int s = 0; s <= sides; s++)
+                if (round)
                 {
-                    float co = cosTable[s], si = sinTable[s];
-                    float rx = n.x * co + bx * si, ry = n.y * co + by * si, rz = n.z * co + bz * si;
-                    Vertices[vi] = new Vector3(c.x + rx * radius, c.y + ry * radius, c.z + rz * radius);
-                    Normals[vi] = new Vector3(rx, ry, rz);
-                    Tangents[vi] = new Vector4(bx * co - n.x * si, by * co - n.y * si, bz * co - n.z * si, 1f);
-                    UVs[vi] = new Vector2(s * invSides, v);
-                    vi++;
+                    // A circle: the offset from the centre is already the surface normal, so it is worked out
+                    // once and used for both.
+                    for (int s = 0; s <= sides; s++)
+                    {
+                        float co = pCos[s], si = pSin[s];
+                        float rx = n.x * co + bx * si, ry = n.y * co + by * si, rz = n.z * co + bz * si;
+                        Vertices[vi] = new Vector3(c.x + rx * radius, c.y + ry * radius, c.z + rz * radius);
+                        Normals[vi] = new Vector3(rx, ry, rz);
+                        Tangents[vi] = new Vector4(bx * co - n.x * si, by * co - n.y * si, bz * co - n.z * si, 1f);
+                        UVs[vi] = new Vector2(s * invSides, v);
+                        vi++;
+                    }
+                }
+                else
+                {
+                    for (int s = 0; s <= sides; s++)
+                    {
+                        float pc = pCos[s], ps = pSin[s];
+                        float nc = nCos[s], ns = nSin[s];
+                        float tc = tCos[s], ts = tSin[s];
+                        Vertices[vi] = new Vector3(
+                            c.x + (n.x * pc + bx * ps) * radius,
+                            c.y + (n.y * pc + by * ps) * radius,
+                            c.z + (n.z * pc + bz * ps) * radius);
+                        Normals[vi] = new Vector3(n.x * nc + bx * ns, n.y * nc + by * ns, n.z * nc + bz * ns);
+                        Tangents[vi] = new Vector4(n.x * tc + bx * ts, n.y * tc + by * ts, n.z * tc + bz * ts, 1f);
+                        UVs[vi] = new Vector2(s * invSides, v);
+                        vi++;
+                    }
                 }
             }
             VertexCount = vi;
@@ -321,19 +349,39 @@ namespace KSPTethers
             FittingTriangleCount = ti;
         }
 
-        private void EnsureTrigTable(int sides)
+        /// <summary>
+        /// Cross-section of the cable: a circle, or for a flat strap an ellipse squashed to
+        /// <paramref name="aspect"/> of its width. The strap's edges sit at the start and halfway round, which
+        /// is where the texture folds, so its selvedges land on the real edges.
+        /// </summary>
+        private void EnsureTrigTable(int sides, float aspect)
         {
-            if (tableSides == sides)
+            if (tableSides == sides && Math.Abs(tableAspect - aspect) < 1e-6f)
                 return;
-            cosTable = new float[sides + 1];
-            sinTable = new float[sides + 1];
+            pCos = new float[sides + 1];
+            pSin = new float[sides + 1];
+            nCos = new float[sides + 1];
+            nSin = new float[sides + 1];
+            tCos = new float[sides + 1];
+            tSin = new float[sides + 1];
             for (int s = 0; s <= sides; s++)
             {
                 double ang = 2.0 * Math.PI * s / sides;
-                cosTable[s] = (float)Math.Cos(ang);
-                sinTable[s] = (float)Math.Sin(ang);
+                float co = (float)Math.Cos(ang), si = (float)Math.Sin(ang);
+                pCos[s] = co;
+                pSin[s] = si * aspect;
+                float nx = aspect * co, ny = si;
+                float inv = 1f / (float)Math.Sqrt(nx * nx + ny * ny);
+                nCos[s] = nx * inv;
+                nSin[s] = ny * inv;
+                float tx = -si, ty = aspect * co;
+                inv = 1f / (float)Math.Sqrt(tx * tx + ty * ty);
+                tCos[s] = tx * inv;
+                tSin[s] = ty * inv;
             }
             tableSides = sides;
+            tableAspect = aspect;
+            round = aspect >= 0.999f;
         }
 
         private void EnsureCurveCapacity(int rings)

@@ -23,8 +23,8 @@ namespace KSPTethers.Tests
             RenderSlackLoops(System.IO.Path.Combine(outDir, "slack_loops.png"));
             RenderLanded(System.IO.Path.Combine(outDir, "landed_eva.png"));
             RenderHullWrap(System.IO.Path.Combine(outDir, "hull_wrap.png"));
-            string cfg = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\..\..\..\KSPTethers\Settings.cfg");
-            if (System.IO.File.Exists(cfg))
+            string cfg = CableSwatches.SettingsPath;
+            if (cfg != null)
                 CableSwatches.Render(cfg, System.IO.Path.Combine(outDir, "cable_styles.png"));
             Console.WriteLine("Wrote snapshots to " + outDir);
         }

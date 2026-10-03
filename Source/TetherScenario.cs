@@ -49,6 +49,8 @@ namespace KSPTethers
                 c.B.Save(n, "b");
                 n.AddValue("length", c.LengthLimit.ToString("R", CultureInfo.InvariantCulture));
                 n.AddValue("share", c.ShareResources ? "True" : "False");
+                if (c.Slot > 0)
+                    n.AddValue("slot", c.Slot.ToString(CultureInfo.InvariantCulture));
             }
         }
 
@@ -66,9 +68,15 @@ namespace KSPTethers
                     continue;
                 float length = 5f;
                 bool share = false;
+                int slot = 0;
                 n.TryGetValue("length", ref length);
                 n.TryGetValue("share", ref share);
-                cables.Add(new TetherCore(TetherKind.Vessel, a, b, length, length, this) { ShareResources = share });
+                n.TryGetValue("slot", ref slot);
+                cables.Add(new TetherCore(TetherKind.Vessel, a, b, length, length, this)
+                {
+                    ShareResources = share,
+                    Slot = Mathf.Clamp(slot, 0, TetherUserSettings.SlotCount)
+                });
             }
             if (cables.Count > 0)
                 TetherLog.Info("Loaded " + cables.Count + " cable(s) between parts.");
@@ -87,6 +95,30 @@ namespace KSPTethers
             core.ShareResources = TetherUserSettings.Instance.cableSharingDefault;
             cables.Add(core);
             return core;
+        }
+
+        /// <summary>An existing cable between these two parts, whichever way round it runs.</summary>
+        internal TetherCore FindCable(uint pidA, uint pidB)
+        {
+            if (pidA == 0 || pidB == 0)
+                return null;
+            foreach (TetherCore c in cables)
+            {
+                if ((c.A.Pid == pidA && c.B.Pid == pidB) || (c.A.Pid == pidB && c.B.Pid == pidA))
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Adds a cable between two parts directly, without a kerbal carrying the end over: used by tether
+        /// points rigged together in the editor, and by anything else that wants a cable to exist.
+        /// </summary>
+        internal TetherCore AddCable(TetherEnd a, TetherEnd b, float length, bool share)
+        {
+            var c = new TetherCore(TetherKind.Vessel, a, b, length, length, this) { ShareResources = share };
+            cables.Add(c);
+            return c;
         }
 
         /// <summary>Stops managing a cable whose end a kerbal just picked up (the kerbal owns it now).</summary>

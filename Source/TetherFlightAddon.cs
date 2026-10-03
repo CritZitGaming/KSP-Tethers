@@ -62,8 +62,12 @@ namespace KSPTethers
         {
             TetherConfig.Reload();
             TetherToolbar.RegisterWithToolbarControl();
+            // Generate the two cable surfaces now rather than on the frame a tether is first drawn.
+            CableStyles.PrewarmSelected();
             TetherLog.Info("Toolbar: " + (TetherToolbar.UsingToolbarControl ? "ToolbarControl (stock and Blizzy)" : "stock launcher") +
-                           "; windows: " + (GuiWindow.UsingClickThroughBlocker ? "ClickThroughBlocker" : "input lock"));
+                           "; windows: " + (GuiWindow.UsingClickThroughBlocker ? "ClickThroughBlocker" : "input lock") +
+                           "; link: " + (TetherCompat.PrincipiaInstalled ? "forces (Principia)" : "joint") +
+                           (TetherCompat.KasInstalled ? "; KAS tether points" : ""));
         }
     }
 }

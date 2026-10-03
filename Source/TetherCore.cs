@@ -43,16 +43,29 @@ namespace KSPTethers
         public bool Finished { get; private set; }
         /// <summary>Set when a toggled reel-in reached the minimum length (owners announce it).</summary>
         public bool ReachedMinimum { get; private set; }
+        /// <summary>How hard the tether is pulling right now, in kN.</summary>
+        public float Tension { get; private set; }
+
+        /// <summary>Stable number for this tether while it exists, so the app and the keys can refer to it.</summary>
+        public int Id { get; private set; }
+        /// <summary>1 to 9 when the player has given this cable a key of its own; 0 for none.</summary>
+        public int Slot;
+
+        private static int nextId = 1;
 
         private float appInUntil, appOutUntil;
 
         // physics
         private ConfigurableJoint joint;
         private Rigidbody jointBodyA, jointBodyB;
+        private readonly TetherForceLink forceLink = new TetherForceLink();
+        private bool linkActive;
         private float jointLimit;
         private float appliedLimit = -1f;
+        private float appliedBounce = -1f;
         private int linkReadyFrames;
         private float overloadTime;
+        private float runawayTime;
         private float nextSpringUpdate;
 
         // Wrapping: when the rope drapes round end B's vessel, the joint pulls from the last point where the
@@ -95,6 +108,7 @@ namespace KSPTethers
             LengthLimit = lengthLimit;
             RopeLength = ropeLength;
             Owner = owner;
+            Id = nextId++;
             TetherRegistry.Add(this);
         }
 
@@ -126,6 +140,8 @@ namespace KSPTethers
             DestroyJoint();
             A = end;
             linkReadyFrames = 0;
+            linkActive = false;
+            forceLink.Reset();
             collidersDirty = true;
             ResetWrap();
         }
@@ -148,6 +164,8 @@ namespace KSPTethers
             if (rope != null)
                 rope.Reverse();
             linkReadyFrames = 0;
+            linkActive = false;
+            forceLink.Reset();
             collidersDirty = true;
             ResetWrap();
         }
@@ -179,15 +197,16 @@ namespace KSPTethers
                 return true;
             }
             UpdateReel(dt);
-            return ManageJoint(dt, out problem);
+            return ManageLink(dt, out problem);
         }
 
         private void UpdateReel(float dt)
         {
             TetherConfig cfg = TetherConfig.Instance;
             TetherGameSettings gs = TetherGameSettings.Current;
-            float maxLen = Mathf.Max(gs.maxLength, cfg.minLength);
-            float speed = gs.reelSpeed;
+            TetherCheatSettings cheats = TetherCheatSettings.Current;
+            float maxLen = Mathf.Max(cheats.MaxLength(gs.maxLength), cfg.minLength);
+            float speed = gs.reelSpeed * cheats.ReelSpeed;
 
             if (ReelingIn)
             {
@@ -212,14 +231,34 @@ namespace KSPTethers
                 RopeLength = LengthLimit; // a cable has no automatic pay-out: what is reeled out is what hangs
         }
 
-        private bool ManageJoint(float dt, out string problem)
+        /// <summary>
+        /// Whether this tether holds on with a joint or with forces. Forces are the default wherever a mod
+        /// integrates vessel motion itself, because such a mod overwrites what PhysX did and a joint between
+        /// two vessels is then simply thrown away.
+        /// </summary>
+        public bool UseForces
+        {
+            get
+            {
+                switch (TetherUserSettings.Instance.linkMode)
+                {
+                    case TetherLinkMode.Joint: return false;
+                    case TetherLinkMode.Forces: return true;
+                    default: return TetherCompat.PrincipiaInstalled;
+                }
+            }
+        }
+
+        private bool ManageLink(float dt, out string problem)
         {
             problem = null;
             TetherConfig cfg = TetherConfig.Instance;
             TetherGameSettings gs = TetherGameSettings.Current;
+            TetherCheatSettings cheats = TetherCheatSettings.Current;
             Vector3 aw = A.WorldPos, bw = B.WorldPos;
             Vessel va = A.Vessel, vb = B.Vessel;
             Rigidbody ra = A.Body, rb = B.Body;
+            Part pa = A.BodyPart, pb = B.BodyPart;
             float target = LengthLimit;
 
             // Pull from where the rope wraps the hull, if it does: the kerbal is then held by the rope's real
@@ -231,6 +270,7 @@ namespace KSPTethers
                 if (pr != null && !pr.isKinematic)
                 {
                     rb = pr;
+                    pb = TetherEnd.BodyPartOf(wrapPart);
                     bw = wrapPart.transform.TransformPoint(wrapLocal);
                     target = Mathf.Max(cfg.minLength, LengthLimit - wrapArc);
                 }
@@ -248,9 +288,12 @@ namespace KSPTethers
             if (!wanted)
             {
                 DestroyJoint();
+                forceLink.Reset();
+                linkActive = false;
+                Tension = 0f;
                 // Cosmetic tethers (or ones that can't hold) come free if hopelessly overstretched.
-                float limit = gs.physicalTethers ? LengthLimit * 3f + 20f : LengthLimit * 1.5f + 3f;
-                if (!va.packed && !vb.packed && dist > limit)
+                float loose = gs.physicalTethers ? LengthLimit * 3f + 20f : LengthLimit * 1.5f + 3f;
+                if (!cheats.Unbreakable && !va.packed && !vb.packed && dist > loose)
                 {
                     problem = "pulled free";
                     return false;
@@ -258,43 +301,60 @@ namespace KSPTethers
                 return true;
             }
 
-            if (joint == null)
+            // Never start with a yank: take up the current distance first, then haul down to the set length.
+            if (!linkActive)
             {
-                CreateJoint(ra, rb, aw, bw);
-                // Never start with a yank: begin at the current distance and reel down to the set length.
+                linkActive = true;
                 jointLimit = Mathf.Max(target, dist + 0.02f);
-                ApplyLimit(true);
+                appliedLimit = -1f;
             }
             else
             {
-                if ((bw - appliedPivot).sqrMagnitude > 1e-4f)
+                RampLimit(dt, target, dist);
+            }
+
+            float spring, damping;
+            ComputeSpring(va, vb, out spring, out damping);
+            float breakForce = cheats.Unbreakable ? 0f : Kind == TetherKind.Kerbal ? cfg.breakForce : cfg.cableBreakForce;
+            float maxForce = cfg.maxLinkForce;
+            if (breakForce > 0f)
+                maxForce = maxForce > 0f ? Mathf.Min(maxForce, breakForce * 4f) : breakForce * 4f;
+
+            if (UseForces)
+            {
+                DestroyJoint();
+                forceLink.Apply(pa, ra, aw, pb, rb, bw, jointLimit, spring, damping, dt, maxForce);
+                Tension = forceLink.Tension;
+            }
+            else
+            {
+                forceLink.Reset();
+                if (joint == null)
                 {
-                    // The wrap point slides as the rope moves round the hull.
-                    joint.connectedAnchor = rb.transform.InverseTransformPoint(bw);
-                    appliedPivot = bw;
-                }
-                if (jointLimit <= target)
-                {
-                    jointLimit = target;
+                    CreateJoint(ra, rb, aw, bw);
+                    ApplyLimit(true);
                 }
                 else
                 {
-                    jointLimit = Mathf.Min(jointLimit, Mathf.Max(dist, target)); // drop unused slack instantly
-                    jointLimit = Mathf.Max(target, jointLimit - gs.reelSpeed * dt); // then haul at reel speed
+                    if ((bw - appliedPivot).sqrMagnitude > 1e-4f)
+                    {
+                        // The wrap point slides as the rope moves round the hull.
+                        joint.connectedAnchor = rb.transform.InverseTransformPoint(bw);
+                        appliedPivot = bw;
+                    }
+                    ApplyLimit(false);
                 }
-                ApplyLimit(false);
+                if (Time.time >= nextSpringUpdate)
+                {
+                    nextSpringUpdate = Time.time + 1f;
+                    UpdateSpring(va, vb);
+                }
+                Tension = joint != null ? joint.currentForce.magnitude : 0f;
             }
 
-            if (Time.time >= nextSpringUpdate)
-            {
-                nextSpringUpdate = Time.time + 1f;
-                UpdateSpring(va, vb);
-            }
-
-            float breakForce = Kind == TetherKind.Kerbal ? cfg.breakForce : cfg.cableBreakForce;
             if (breakForce > 0f)
             {
-                if (joint.currentForce.magnitude > breakForce)
+                if (Tension > breakForce)
                 {
                     overloadTime += dt;
                     if (overloadTime > 0.1f)
@@ -308,7 +368,36 @@ namespace KSPTethers
                     overloadTime = 0f;
                 }
             }
+
+            // If the ends keep drifting apart while the link is supposed to be holding, something else is
+            // moving them and the tether is not really attached: let go rather than draw a rope to infinity.
+            if (!cheats.Unbreakable && dist > Mathf.Max(target, cfg.minLength) * cfg.runawayFactor + 20f)
+            {
+                runawayTime += dt;
+                if (runawayTime > cfg.runawayGrace)
+                {
+                    problem = "pulled free";
+                    return false;
+                }
+            }
+            else
+            {
+                runawayTime = 0f;
+            }
             return true;
+        }
+
+        /// <summary>Drops slack as soon as it appears, then hauls the limit down at the reel's speed.</summary>
+        private void RampLimit(float dt, float target, float dist)
+        {
+            if (jointLimit <= target)
+            {
+                jointLimit = target;
+                return;
+            }
+            jointLimit = Mathf.Min(jointLimit, Mathf.Max(dist, target));
+            float speed = TetherGameSettings.Current.reelSpeed * TetherCheatSettings.Current.ReelSpeed;
+            jointLimit = Mathf.Max(target, jointLimit - speed * dt);
         }
 
         /// <summary>
@@ -404,19 +493,32 @@ namespace KSPTethers
         /// Spring tuned to the masses on each end: a natural frequency and damping ratio rather than a raw
         /// stiffness, so a kerbal on a 15 m line and a tug towing a station both feel right.
         /// </summary>
+        private void ComputeSpring(Vessel va, Vessel vb, out float spring, out float damping)
+        {
+            TetherConfig cfg = TetherConfig.Instance;
+            TetherCheatSettings cheats = TetherCheatSettings.Current;
+            float ma = Mathf.Max(0.01f, va != null ? va.GetTotalMass() : 0.1f);
+            float mb = Mathf.Max(0.01f, vb != null ? vb.GetTotalMass() : 0.1f);
+            float mu = va == vb ? ma * 0.5f : ma * mb / (ma + mb);
+            float f = Kind == TetherKind.Kerbal ? cfg.springFrequency : cfg.cableSpringFrequency;
+            float zeta = Kind == TetherKind.Kerbal ? cfg.springDampingRatio : cfg.cableDampingRatio;
+            if (cheats.CrazyPhysics)
+            {
+                f *= 3f;
+                zeta *= 0.08f;
+            }
+            float w = 2f * Mathf.PI * f;
+            float strength = cheats.Strength;
+            spring = Mathf.Clamp(w * w * mu * strength, 0.1f, cfg.maxSpring * Mathf.Max(1f, strength));
+            damping = 2f * zeta * Mathf.Sqrt(spring * mu);
+        }
+
         private void UpdateSpring(Vessel va, Vessel vb)
         {
             if (joint == null)
                 return;
-            TetherConfig cfg = TetherConfig.Instance;
-            float ma = Mathf.Max(0.01f, va.GetTotalMass());
-            float mb = Mathf.Max(0.01f, vb.GetTotalMass());
-            float mu = va == vb ? ma * 0.5f : ma * mb / (ma + mb);
-            float f = Kind == TetherKind.Kerbal ? cfg.springFrequency : cfg.cableSpringFrequency;
-            float zeta = Kind == TetherKind.Kerbal ? cfg.springDampingRatio : cfg.cableDampingRatio;
-            float w = 2f * Mathf.PI * f;
-            float k = Mathf.Clamp(w * w * mu, 0.1f, cfg.maxSpring);
-            float c = 2f * zeta * Mathf.Sqrt(k * mu);
+            float k, c;
+            ComputeSpring(va, vb, out k, out c);
             joint.linearLimitSpring = new SoftJointLimitSpring { spring = k, damper = c };
         }
 
@@ -424,10 +526,12 @@ namespace KSPTethers
         {
             if (joint == null)
                 return;
-            if (!force && Mathf.Abs(appliedLimit - jointLimit) < 0.001f)
+            float bounce = TetherCheatSettings.Current.CrazyPhysics ? 1f : 0f;
+            if (!force && Mathf.Abs(appliedLimit - jointLimit) < 0.001f && Mathf.Abs(appliedBounce - bounce) < 0.001f)
                 return;
-            joint.linearLimit = new SoftJointLimit { limit = jointLimit, bounciness = 0f, contactDistance = 0f };
+            joint.linearLimit = new SoftJointLimit { limit = jointLimit, bounciness = bounce, contactDistance = 0f };
             appliedLimit = jointLimit;
+            appliedBounce = bounce;
         }
 
         private void CreateJoint(Rigidbody ra, Rigidbody rb, Vector3 aw, Vector3 bw)
@@ -480,6 +584,8 @@ namespace KSPTethers
             {
                 DestroyJoint();
                 linkReadyFrames = 0;
+                linkActive = false;
+                forceLink.Reset();
             }
         }
 
@@ -492,6 +598,9 @@ namespace KSPTethers
                 return;
             Released = true;
             DestroyJoint();
+            linkActive = false;
+            forceLink.Reset();
+            Tension = 0f;
             Reel = ReelMode.None;
             if (rope != null && !ropeStale && A.IsAlive)
             {
@@ -694,9 +803,10 @@ namespace KSPTethers
                 ropeRenderer.SetStyle(style);
             }
             tube.Radius = radius;
+            tube.Aspect = style.Flat ? style.Aspect : 1f;
             tube.Sides = lodLevel == 0 ? cfg.radialSides : lodLevel == 1 ? Math.Max(6, cfg.radialSides - 2) : 6;
             tube.Subdivisions = lodLevel == 0 ? cfg.smoothingSubdivisions : lodLevel == 1 ? Math.Max(1, cfg.smoothingSubdivisions - 1) : 1;
-            tube.VPerMeter = style.TilesPerMeter;
+            tube.VPerMeter = style.Tiling;
             tube.DirA = dirA;
             tube.DirB = dirB;
             tube.RefUpA = A.RefUp;

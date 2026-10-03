@@ -39,6 +39,7 @@ namespace KSPTethers
             e.Bind(p);
             if (!e.IsKerbal)
             {
+                TetherGeometry.SnapToSocket(p, ref worldPoint, ref worldNormal);
                 if (worldNormal.sqrMagnitude < 1e-8f)
                     worldNormal = worldPoint - p.transform.position;
                 if (worldNormal.sqrMagnitude < 1e-8f)
@@ -136,12 +137,21 @@ namespace KSPTethers
         /// <summary>The rigidbody carrying this end (physicsless parts ride on their parent's).</summary>
         public Rigidbody Body => BodyOf(Part);
 
+        /// <summary>The part that owns that rigidbody, which is where forces have to be applied.</summary>
+        public Part BodyPart => BodyPartOf(Part);
+
         public static Rigidbody BodyOf(Part p)
+        {
+            Part owner = BodyPartOf(p);
+            return owner != null ? owner.rb : null;
+        }
+
+        public static Part BodyPartOf(Part p)
         {
             int guard = 0;
             while (p != null && p.rb == null && guard++ < 64)
                 p = p.parent;
-            return p != null ? p.rb : null;
+            return p;
         }
 
         public string Title

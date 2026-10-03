@@ -27,6 +27,7 @@ namespace KSPTethers
         public int radialSides = 10;
         public int smoothingSubdivisions = 3;
         public bool castShadows = true;
+        public int textureSize = 256;          // texels around the cable; a tile is twice that along it
         public float lodNearDistance = 25f;    // full detail inside this camera distance
         public float lodFarDistance = 80f;     // lowest detail beyond this
 
@@ -60,6 +61,9 @@ namespace KSPTethers
         public float cableBreakForce = 0f;        // kN for cables between parts; 0 = unbreakable
         public float minLength = 0.5f;
         public float cableEndPickupRadius = 0.6f; // m, how close to a cable end a kerbal must click to pick it up
+        public float maxLinkForce = 0f;           // kN ceiling on the pull; 0 = whatever the spring asks for
+        public float runawayFactor = 3f;          // a tether this much longer than it should be has lost its grip
+        public float runawayGrace = 2f;           // s it must stay that way before the tether comes free
 
         // ---- Kerbal attach point ---------------------------------------------------------------
         public string kerbalBone = "bn_jetpack01";
@@ -69,7 +73,14 @@ namespace KSPTethers
         public KeyCode toggleKey = KeyCode.Y;
         public KeyCode reelInKey = KeyCode.Minus;
         public KeyCode reelOutKey = KeyCode.Equals;
+        public KeyCode selectNextKey = KeyCode.Semicolon;
+        public KeyCode selectPrevKey = KeyCode.None;
         public float releaseHoldTime = 0.8f;
+
+        // ---- How the tether holds on -----------------------------------------------------------
+        // auto: forces when a mod that integrates vessels itself (Principia) is installed, a joint
+        // otherwise. joint / forces pin it either way. Players can change this in the toolbar app.
+        public TetherLinkMode linkMode = TetherLinkMode.Auto;
 
         // ---- Resource transfer -----------------------------------------------------------------
         public float resourceTickInterval = 0.25f; // s between resource exchanges
@@ -115,6 +126,7 @@ namespace KSPTethers
             n.TryGetValue("radialSides", ref radialSides);
             n.TryGetValue("smoothingSubdivisions", ref smoothingSubdivisions);
             n.TryGetValue("castShadows", ref castShadows);
+            n.TryGetValue("textureSize", ref textureSize);
             n.TryGetValue("lodNearDistance", ref lodNearDistance);
             n.TryGetValue("lodFarDistance", ref lodFarDistance);
 
@@ -144,6 +156,9 @@ namespace KSPTethers
             n.TryGetValue("cableBreakForce", ref cableBreakForce);
             n.TryGetValue("minLength", ref minLength);
             n.TryGetValue("cableEndPickupRadius", ref cableEndPickupRadius);
+            n.TryGetValue("maxLinkForce", ref maxLinkForce);
+            n.TryGetValue("runawayFactor", ref runawayFactor);
+            n.TryGetValue("runawayGrace", ref runawayGrace);
 
             n.TryGetValue("kerbalBone", ref kerbalBone);
             n.TryGetValue("kerbalOffset", ref kerbalOffset);
@@ -151,7 +166,10 @@ namespace KSPTethers
             toggleKey = ParseKey(n, "toggleKey", toggleKey);
             reelInKey = ParseKey(n, "reelInKey", reelInKey);
             reelOutKey = ParseKey(n, "reelOutKey", reelOutKey);
+            selectNextKey = ParseKey(n, "selectNextKey", selectNextKey);
+            selectPrevKey = ParseKey(n, "selectPrevKey", selectPrevKey);
             n.TryGetValue("releaseHoldTime", ref releaseHoldTime);
+            linkMode = TetherUserSettings.ParseLinkMode(n.GetValue("linkMode"), linkMode);
 
             n.TryGetValue("resourceTickInterval", ref resourceTickInterval);
 
@@ -163,6 +181,10 @@ namespace KSPTethers
             // Keep values in sane ranges so a typo can't blow up the solver.
             radialSides = Mathf.Clamp(radialSides, 4, 24);
             smoothingSubdivisions = Mathf.Clamp(smoothingSubdivisions, 1, 8);
+            textureSize = Mathf.Clamp(textureSize, 32, 1024);
+            maxLinkForce = Mathf.Max(0f, maxLinkForce);
+            runawayFactor = Mathf.Max(1.2f, runawayFactor);
+            runawayGrace = Mathf.Clamp(runawayGrace, 0.1f, 30f);
             lodNearDistance = Mathf.Max(1f, lodNearDistance);
             lodFarDistance = Mathf.Max(lodNearDistance + 1f, lodFarDistance);
             segmentLength = Mathf.Clamp(segmentLength, 0.05f, 2f);

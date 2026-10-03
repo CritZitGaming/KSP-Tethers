@@ -9,6 +9,23 @@ namespace KSPTethers
     {
         public static readonly List<TetherCore> All = new List<TetherCore>();
 
+        private static TetherCore selected;
+
+        /// <summary>
+        /// The cable the reel keys drive while you are not flying a tethered kerbal. Chosen in the toolbar
+        /// app, by the next/previous keys, or by a key bound to the cable's own slot.
+        /// </summary>
+        public static TetherCore Selected
+        {
+            get
+            {
+                if (selected != null && (selected.Released || selected.Finished || !All.Contains(selected)))
+                    selected = null;
+                return selected;
+            }
+            set { selected = value; }
+        }
+
         public static void Add(TetherCore core)
         {
             if (!All.Contains(core))
@@ -18,6 +35,60 @@ namespace KSPTethers
         public static void Remove(TetherCore core)
         {
             All.Remove(core);
+            if (selected == core)
+                selected = null;
+        }
+
+        /// <summary>Every cable between parts that is live enough to be controlled, in a stable order.</summary>
+        public static List<TetherCore> Cables(List<TetherCore> into)
+        {
+            into.Clear();
+            foreach (TetherCore c in All)
+            {
+                if (!c.Released && !c.Finished && c.Kind == TetherKind.Vessel)
+                    into.Add(c);
+            }
+            into.Sort((x, y) => x.Id.CompareTo(y.Id));
+            return into;
+        }
+
+        private static readonly List<TetherCore> scratch = new List<TetherCore>();
+
+        /// <summary>Moves the selection along the list of cables; returns the new one, or null if there are none.</summary>
+        public static TetherCore SelectStep(int step)
+        {
+            List<TetherCore> list = Cables(scratch);
+            if (list.Count == 0)
+                return Selected = null;
+            int at = Selected != null ? list.IndexOf(Selected) : -1;
+            at = at < 0 ? (step > 0 ? 0 : list.Count - 1) : (at + step % list.Count + list.Count) % list.Count;
+            return Selected = list[at];
+        }
+
+        /// <summary>The cable the player put in slot <paramref name="slot"/> (1-based), if any.</summary>
+        public static TetherCore BySlot(int slot)
+        {
+            foreach (TetherCore c in All)
+            {
+                if (!c.Released && !c.Finished && c.Slot == slot)
+                    return c;
+            }
+            return null;
+        }
+
+        /// <summary>Gives a cable a slot, taking it off whichever cable had it before.</summary>
+        public static void SetSlot(TetherCore core, int slot)
+        {
+            if (slot > 0)
+            {
+                foreach (TetherCore c in All)
+                {
+                    if (c != core && c.Slot == slot)
+                        c.Slot = 0;
+                }
+            }
+            if (core != null)
+                core.Slot = slot;
         }
 
         /// <summary>Finds a cable end clipped to <paramref name="p"/> near <paramref name="point"/>.</summary>

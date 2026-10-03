@@ -534,18 +534,24 @@ namespace KSPTethers.Tests
                 var tp = new TubeBuildParams { Radius = 0.022f, Sides = 10, Subdivisions = 3, VPerMeter = 7f, DirA = Vector3.forward, DirB = Vector3.back, RefUpA = Vector3.up, FittingA = true, FittingB = true, BasePlateB = true };
                 for (int f = 0; f < 120; f++) { rope.Step(1f / 60f, ref p, null); builder.Build(rope.Pos, rope.Count, ref tp); }
 
+                // Whatever else the machine is doing shows up as noise, so each pass is timed three times
+                // and the fastest kept: that is the cost of the work itself.
                 int frames = 600;
-                var sw = Stopwatch.StartNew();
-                for (int f = 0; f < frames; f++)
+                double simMs = double.MaxValue, meshMs = double.MaxValue;
+                for (int pass = 0; pass < 3; pass++)
                 {
-                    p.A = new Vector3((float)Math.Sin(f * 0.02), 0f, 5f);
-                    rope.Step(1f / 60f, ref p, null);
+                    var sw = Stopwatch.StartNew();
+                    for (int f = 0; f < frames; f++)
+                    {
+                        p.A = new Vector3((float)Math.Sin(f * 0.02), 0f, 5f);
+                        rope.Step(1f / 60f, ref p, null);
+                    }
+                    simMs = Math.Min(simMs, sw.Elapsed.TotalMilliseconds / frames);
+                    sw.Restart();
+                    for (int f = 0; f < frames; f++)
+                        builder.Build(rope.Pos, rope.Count, ref tp);
+                    meshMs = Math.Min(meshMs, sw.Elapsed.TotalMilliseconds / frames);
                 }
-                double simMs = sw.Elapsed.TotalMilliseconds / frames;
-                sw.Restart();
-                for (int f = 0; f < frames; f++)
-                    builder.Build(rope.Pos, rope.Count, ref tp);
-                double meshMs = sw.Elapsed.TotalMilliseconds / frames;
                 Console.WriteLine("   " + iterations + " iterations, " + rope.Count + " nodes, " + builder.VertexCount + " vertices: sim " +
                                   simMs.ToString("F3") + " ms + mesh " + meshMs.ToString("F3") + " ms per frame");
                 if (iterations == 12)

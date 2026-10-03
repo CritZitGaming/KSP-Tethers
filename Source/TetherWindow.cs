@@ -6,16 +6,21 @@ using UnityEngine;
 namespace KSPTethers
 {
     /// <summary>
-    /// The toolbar app: manage live tethers and cables, pick cable styles, switch the lifeline (resource
-    /// transfer) and its resources on or off, and rebind keys. Available in flight and at the Space Center.
+    /// The toolbar app: manage live tethers and cables, choose which cable the reel keys drive, pick cable
+    /// styles, switch the lifeline (resource transfer) and its resources on or off, rebind keys and choose how
+    /// tethers hold on. Available in flight and at the Space Center.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.FlightAndKSC, false)]
     public class TetherWindow : MonoBehaviour
     {
-        private enum KeyAction { None, Toggle, ReelIn, ReelOut }
+        // Key rows, in the order they are drawn. Slots run from Slot1 upwards.
+        private const int KeyNone = -1;
+        private const int KeyToggle = 0, KeyReelIn = 1, KeyReelOut = 2;
+        private const int KeySelectNext = 3, KeySelectPrev = 4, KeyReleaseSel = 5, KeySlot1 = 6;
 
         private const string LockId = "KSPTethers_Window";
-        private static readonly string[] TabNames = { "Tethers", "Cables", "Resources", "Keys" };
+        private static readonly string[] TabNames = { "Tethers", "Cables", "Resources", "Keys", "Setup" };
+        private static readonly string[] LinkModeNames = { "Automatic", "Joint", "Forces" };
 
         /// <summary>True while waiting for the player to press a key to bind; tether keys are ignored meanwhile.</summary>
         public static bool IsCapturingKey { get; private set; }
@@ -25,19 +30,20 @@ namespace KSPTethers
         private Rect rect;
         private int windowId;
         private Vector2 scroll;
-        private KeyAction capturing;
+        private int capturing = KeyNone;
         private bool locked;
         private Texture2D swatch;
-        private GUIStyle headerStyle, smallStyle, goodStyle, badStyle;
+        private GUIStyle headerStyle, smallStyle, goodStyle, badStyle, selectedStyle;
         private readonly Dictionary<KeyCode, string> conflicts = new Dictionary<KeyCode, string>();
+        private readonly List<TetherCore> cableScratch = new List<TetherCore>();
 
         private void Start()
         {
             windowId = GetInstanceID();
             TetherUserSettings user = TetherUserSettings.Instance;
-            float x = user.windowX >= 0 ? user.windowX : Screen.width - 460f;
+            float x = user.windowX >= 0 ? user.windowX : Screen.width - 480f;
             float y = user.windowY >= 0 ? user.windowY : 90f;
-            rect = new Rect(x, y, 400f, 470f);
+            rect = new Rect(x, y, 420f, 500f);
             toolbar = new TetherToolbar(gameObject, Open, Close);
             GameEvents.onHideUI.Add(OnHideUI);
             GameEvents.onShowUI.Add(OnShowUI);
@@ -77,7 +83,7 @@ namespace KSPTethers
         private void Close()
         {
             visible = false;
-            capturing = KeyAction.None;
+            capturing = KeyNone;
             IsCapturingKey = false;
             SetLock(false);
             TetherUserSettings.Instance.SaveIfDirty();
@@ -94,12 +100,12 @@ namespace KSPTethers
             EnsureStyles();
 
             // Key capture happens before the window draws so the press isn't also handled by a button.
-            if (capturing != KeyAction.None && Event.current.type == EventType.KeyDown && Event.current.keyCode != KeyCode.None)
+            if (capturing != KeyNone && Event.current.type == EventType.KeyDown && Event.current.keyCode != KeyCode.None)
             {
                 KeyCode k = Event.current.keyCode;
                 if (k != KeyCode.Escape)
                     AssignKey(capturing, k);
-                capturing = KeyAction.None;
+                capturing = KeyNone;
                 IsCapturingKey = false;
                 Event.current.Use();
             }
@@ -145,6 +151,8 @@ namespace KSPTethers
             goodStyle.normal.textColor = new Color(0.55f, 0.95f, 0.55f);
             badStyle = new GUIStyle(smallStyle);
             badStyle.normal.textColor = new Color(1f, 0.6f, 0.4f);
+            selectedStyle = new GUIStyle(HighLogic.Skin.label) { fontStyle = FontStyle.Bold };
+            selectedStyle.normal.textColor = new Color(0.5f, 0.9f, 1f);
             swatch = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             swatch.SetPixel(0, 0, Color.white);
             swatch.Apply();
@@ -171,10 +179,11 @@ namespace KSPTethers
             scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
             switch (tab)
             {
-                case 0: DrawTethers(); break;
+                case 0: DrawTethers(user); break;
                 case 1: DrawCables(user); break;
                 case 2: DrawResources(user); break;
-                default: DrawKeys(user); break;
+                case 3: DrawKeys(user); break;
+                default: DrawSetup(user); break;
             }
             GUILayout.EndScrollView();
             GUI.DragWindow(new Rect(0f, 0f, rect.width - 28f, 22f));
@@ -182,14 +191,15 @@ namespace KSPTethers
 
         // ---- Tethers -----------------------------------------------------------------------------
 
-        private void DrawTethers()
+        private void DrawTethers(TetherUserSettings user)
         {
             if (!HighLogic.LoadedSceneIsFlight)
             {
                 GUILayout.Label("Tethers and cables are listed here during flight.", smallStyle);
                 return;
             }
-            string key = TetherUserSettings.Instance.toggleKey.ToString();
+            string key = user.toggleKey.ToString();
+            TetherCore selected = TetherRegistry.Selected;
             int shown = 0;
             List<TetherCore> all = TetherRegistry.All;
             for (int i = 0; i < all.Count; i++)
@@ -198,14 +208,21 @@ namespace KSPTethers
                 if (c.Released)
                     continue;
                 shown++;
-                GUILayout.BeginVertical(HighLogic.Skin.box);
                 bool cable = c.Kind == TetherKind.Vessel;
-                GUILayout.Label((cable ? "Cable: " : "") + (cable ? c.A.LongTitle : c.A.Title) + "  <->  " + (cable ? c.B.LongTitle : c.B.Title), headerStyle);
+                GUILayout.BeginVertical(HighLogic.Skin.box);
+                GUILayout.Label((cable ? "Cable: " : "") + (cable ? c.A.LongTitle : c.A.Title) + "  <->  " + (cable ? c.B.LongTitle : c.B.Title),
+                    cable && c == selected ? selectedStyle : headerStyle);
                 if (c.Attached)
+                {
                     GUILayout.Label("Distance " + c.Distance.ToString("F1") + " m   length " + c.LengthLimit.ToString("F1") +
-                                    " m   rope out " + c.RopeLength.ToString("F1") + " m" + (c.ReelingIn ? "   (reeling in)" : c.ReelingOut ? "   (reeling out)" : ""), smallStyle);
+                                    " m   rope out " + c.RopeLength.ToString("F1") + " m" +
+                                    (c.ReelingIn ? "   (reeling in)" : c.ReelingOut ? "   (reeling out)" : "") +
+                                    (c.Tension > 0.01f ? "   pulling " + c.Tension.ToString("F1") + " kN" : ""), smallStyle);
+                }
                 else
+                {
                     GUILayout.Label("Waiting for both ends to load", smallStyle);
+                }
 
                 GUILayout.BeginHorizontal();
                 if (GUILayout.RepeatButton("<< Reel in", GUILayout.Width(95f)))
@@ -216,6 +233,9 @@ namespace KSPTethers
                 if (GUILayout.Button("Release", GUILayout.Width(80f)))
                     ReleaseFromApp(c);
                 GUILayout.EndHorizontal();
+
+                if (cable)
+                    DrawCableControls(user, c, c == selected);
 
                 var owner = c.Owner as ModuleKerbalTether;
                 if (owner != null && !string.IsNullOrEmpty(owner.LifelineText))
@@ -238,6 +258,27 @@ namespace KSPTethers
             GUILayout.Label("Tethered kerbal: tap [" + key + "] and click another part to clip your end there, making a cable " +
                             "between two ships, or click a kerbal to hand the tether over. Hold [" + key + "] to release. " +
                             "An untethered kerbal can click a cable's end to pick it up.", smallStyle);
+        }
+
+        /// <summary>The row that decides which cable the reel keys drive, and which key picks it directly.</summary>
+        private void DrawCableControls(TetherUserSettings user, TetherCore c, bool isSelected)
+        {
+            GUILayout.BeginHorizontal();
+            bool want = GUILayout.Toggle(isSelected, isSelected ? " Controlled by the reel keys" : " Control with the reel keys");
+            if (want != isSelected)
+                TetherRegistry.Selected = want ? c : null;
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Key:", smallStyle, GUILayout.Width(28f));
+            if (GUILayout.Button(c.Slot == 0 ? "-" : c.Slot.ToString(), GUILayout.Width(26f)))
+                TetherRegistry.SetSlot(c, c.Slot >= TetherUserSettings.SlotCount ? 0 : c.Slot + 1);
+            GUILayout.EndHorizontal();
+            if (c.Slot > 0)
+            {
+                KeyCode k = user.slotKeys[c.Slot - 1];
+                GUILayout.Label(k == KeyCode.None
+                    ? "   Cable key " + c.Slot + " is not bound yet - set it on the Keys tab."
+                    : "   [" + k + "] selects this cable.", k == KeyCode.None ? badStyle : smallStyle);
+            }
         }
 
         private static void ReleaseFromApp(TetherCore c)
@@ -273,9 +314,11 @@ namespace KSPTethers
                 user.thickness = thickness;
                 user.MarkDirty();
                 CableStyles.NotifyChanged();
+                CableStyles.PrewarmSelected();
             }
             GUILayout.Space(4f);
-            GUILayout.Label("Changes apply to every tether immediately. Add your own looks with CABLE_STYLE nodes in Settings.cfg.", smallStyle);
+            GUILayout.Label("Changes apply to every tether immediately. Each style's weave, braid or corrugation is " +
+                            "generated as a seamless tile; add your own with CABLE_STYLE nodes in Settings.cfg.", smallStyle);
         }
 
         private string StylePicker(string current)
@@ -286,10 +329,10 @@ namespace KSPTethers
                 GUILayout.BeginHorizontal();
                 Rect r = GUILayoutUtility.GetRect(18f, 18f, GUILayout.Width(18f), GUILayout.Height(18f));
                 Color old = GUI.color;
-                GUI.color = s.Color;
-                GUI.DrawTexture(new Rect(r.x, r.y + 2f, r.width, r.height - 2f), swatch);
+                GUI.color = s.SwatchColor;
+                GUI.DrawTexture(new Rect(r.x, r.y + 2f, r.width, s.Flat ? 7f : r.height - 2f), swatch);
                 GUI.color = old;
-                bool on = GUILayout.Toggle(s.Name == current, " " + s.Title);
+                bool on = GUILayout.Toggle(s.Name == current, " " + s.Title + (s.Flat ? "  (flat)" : ""));
                 if (on && s.Name != current)
                     result = s.Name;
                 GUILayout.EndHorizontal();
@@ -367,9 +410,31 @@ namespace KSPTethers
 
         private void DrawKeys(TetherUserSettings user)
         {
-            KeyRow("Clip / clip free end / hold to release", KeyAction.Toggle, user.toggleKey);
-            KeyRow("Reel in (hold)", KeyAction.ReelIn, user.reelInKey);
-            KeyRow("Reel out (hold)", KeyAction.ReelOut, user.reelOutKey);
+            GUILayout.Label("On EVA", headerStyle);
+            KeyRow("Clip / clip free end / hold to release", KeyToggle, user.toggleKey);
+            KeyRow("Reel in (hold)", KeyReelIn, user.reelInKey);
+            KeyRow("Reel out (hold)", KeyReelOut, user.reelOutKey);
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Cables between ships", headerStyle);
+            bool fromShip = GUILayout.Toggle(user.cableKeysFromShip,
+                " Reel keys drive the selected cable when you aren't flying a tethered kerbal");
+            if (fromShip != user.cableKeysFromShip)
+            {
+                user.cableKeysFromShip = fromShip;
+                user.MarkDirty();
+            }
+            KeyRow("Select the next cable", KeySelectNext, user.selectNextKey);
+            KeyRow("Select the previous cable", KeySelectPrev, user.selectPrevKey);
+            KeyRow("Release the selected cable", KeyReleaseSel, user.releaseSelectedKey);
+            GUILayout.Space(4f);
+            GUILayout.Label("Or give a cable a key of its own: set its number on the Tethers tab, then bind it here.", smallStyle);
+            for (int i = 0; i < user.slotKeys.Length; i++)
+            {
+                TetherCore c = HighLogic.LoadedSceneIsFlight ? TetherRegistry.BySlot(i + 1) : null;
+                KeyRow("Cable key " + (i + 1) + (c != null ? "  -  " + c.B.Title : ""), KeySlot1 + i, user.slotKeys[i]);
+            }
+
             GUILayout.Space(6f);
             if (GUILayout.Button("Reset to defaults", GUILayout.Width(140f)))
             {
@@ -377,39 +442,111 @@ namespace KSPTethers
                 RefreshConflicts();
             }
             GUILayout.Space(4f);
-            GUILayout.Label(capturing != KeyAction.None
+            GUILayout.Label(capturing != KeyNone
                 ? "Press the new key (Esc cancels)."
-                : "Click a key to change it. Keys only act while you control an EVA kerbal.", smallStyle);
+                : "Click a key to change it. EVA keys only act while you control a kerbal on EVA.", smallStyle);
         }
 
-        private void KeyRow(string label, KeyAction action, KeyCode key)
+        private void KeyRow(string label, int action, KeyCode key)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(label, GUILayout.Width(230f));
-            string text = capturing == action ? "press a key..." : key.ToString();
-            if (GUILayout.Button(text, GUILayout.Width(120f)))
+            GUILayout.Label(label, smallStyle, GUILayout.Width(230f));
+            string text = capturing == action ? "press a key..." : key == KeyCode.None ? "(none)" : key.ToString();
+            if (GUILayout.Button(text, GUILayout.Width(110f)))
             {
-                capturing = capturing == action ? KeyAction.None : action;
-                IsCapturingKey = capturing != KeyAction.None;
+                capturing = capturing == action ? KeyNone : action;
+                IsCapturingKey = capturing != KeyNone;
             }
+            if (key != KeyCode.None && GUILayout.Button("x", GUILayout.Width(22f)))
+                AssignKey(action, KeyCode.None);
             GUILayout.EndHorizontal();
             string clash;
-            if (capturing != action && conflicts.TryGetValue(key, out clash))
+            if (capturing != action && key != KeyCode.None && conflicts.TryGetValue(key, out clash))
                 GUILayout.Label("   Also bound in KSP to: " + clash, badStyle);
         }
 
-        private void AssignKey(KeyAction action, KeyCode key)
+        private void AssignKey(int action, KeyCode key)
         {
             TetherUserSettings user = TetherUserSettings.Instance;
             switch (action)
             {
-                case KeyAction.Toggle: user.toggleKey = key; break;
-                case KeyAction.ReelIn: user.reelInKey = key; break;
-                case KeyAction.ReelOut: user.reelOutKey = key; break;
+                case KeyToggle: user.toggleKey = key; break;
+                case KeyReelIn: user.reelInKey = key; break;
+                case KeyReelOut: user.reelOutKey = key; break;
+                case KeySelectNext: user.selectNextKey = key; break;
+                case KeySelectPrev: user.selectPrevKey = key; break;
+                case KeyReleaseSel: user.releaseSelectedKey = key; break;
+                default:
+                    int slot = action - KeySlot1;
+                    if (slot >= 0 && slot < user.slotKeys.Length)
+                        user.slotKeys[slot] = key;
+                    break;
             }
             user.MarkDirty();
             user.Save();
             RefreshConflicts();
+        }
+
+        // ---- Setup -------------------------------------------------------------------------------
+
+        private void DrawSetup(TetherUserSettings user)
+        {
+            GUILayout.Label("How tethers hold on", headerStyle);
+            int mode = (int)user.linkMode;
+            int now = GUILayout.Toolbar(Mathf.Clamp(mode, 0, LinkModeNames.Length - 1), LinkModeNames);
+            if (now != mode)
+            {
+                user.linkMode = (TetherLinkMode)now;
+                user.MarkDirty();
+                user.Save();
+            }
+            bool principia = TetherCompat.PrincipiaInstalled;
+            switch (user.linkMode)
+            {
+                case TetherLinkMode.Joint:
+                    GUILayout.Label("A PhysX joint, solved along with the rest of the ship. The usual choice.", smallStyle);
+                    if (principia)
+                        GUILayout.Label("Principia is installed: a joint between two vessels is overwritten by its own " +
+                                        "integrator, so tethers will not pull. Use Automatic or Forces.", badStyle);
+                    break;
+                case TetherLinkMode.Forces:
+                    GUILayout.Label("A force added to the part at each end. Slightly softer than a joint, and the only " +
+                                    "kind of pull that mods which integrate vessels themselves keep.", smallStyle);
+                    break;
+                default:
+                    GUILayout.Label(principia
+                        ? "Principia is installed, so tethers pull with forces: it replaces what PhysX works out, and a " +
+                          "joint between two vessels would be thrown away."
+                        : "Nothing installed needs special handling, so tethers use a joint.", principia ? goodStyle : smallStyle);
+                    break;
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Detected", headerStyle);
+            Detected("Principia", principia, "tethers pull with forces", "not installed");
+            Detected("KAS", TetherCompat.KasInstalled, "winches, ports and pylons are tether points", "not installed");
+            Detected("ToolbarControl", TetherToolbar.UsingToolbarControl, "stock and Blizzy's toolbars", "stock launcher only");
+            Detected("ClickThroughBlocker", GuiWindow.UsingClickThroughBlocker, "clicks stay in this window", "using an input lock");
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Cheats", headerStyle);
+            TetherCheatSettings cheats = TetherCheatSettings.Current;
+            string summary = cheats.Summary;
+            GUILayout.Label(summary == null
+                ? "Off. Difficulty Settings > KSP Tethers > Cheats has infinite length, reel speed, reach, strength " +
+                  "and crazy physics."
+                : "On: " + summary, summary == null ? smallStyle : badStyle);
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Tether points", headerStyle);
+            GUILayout.Label("Docking ports, claws, ladders, crewed parts and - with KAS - winches, ports and pylons can be " +
+                            "clipped to with one right-click, and two of them can be rigged together in the editor so the " +
+                            "craft launches with a cable already strung between them.", smallStyle);
+        }
+
+        private void Detected(string name, bool present, string yes, string no)
+        {
+            GUILayout.Label(name + ": " + (present ? yes : no), present ? goodStyle : smallStyle);
         }
 
         /// <summary>Finds KSP key bindings that share our keys, so the player can see clashes.</summary>
@@ -417,7 +554,12 @@ namespace KSPTethers
         {
             conflicts.Clear();
             TetherUserSettings user = TetherUserSettings.Instance;
-            var ours = new[] { user.toggleKey, user.reelInKey, user.reelOutKey };
+            var ours = new List<KeyCode>
+            {
+                user.toggleKey, user.reelInKey, user.reelOutKey,
+                user.selectNextKey, user.selectPrevKey, user.releaseSelectedKey
+            };
+            ours.AddRange(user.slotKeys);
             try
             {
                 foreach (FieldInfo f in typeof(GameSettings).GetFields(BindingFlags.Public | BindingFlags.Static))

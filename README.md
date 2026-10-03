@@ -6,6 +6,7 @@
 [![Requires Module Manager](https://img.shields.io/badge/requires-Module%20Manager-orange)](https://github.com/sarbian/ModuleManager)
 [![Latest release](https://img.shields.io/github/v/release/CritZitGaming/KSP-Tethers)](https://github.com/CritZitGaming/KSP-Tethers/releases)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-lightgrey)](LICENSE)
+[![On CKAN](https://img.shields.io/badge/CKAN-KSPTethers-brightgreen)](https://github.com/KSP-CKAN/CKAN)
 
 Kerbals get a reel-mounted umbilical on their backpack that clips onto any part or another kerbal, and can
 carry the free end over to another ship to rig a cable between vessels. The rope is fully simulated: it floats
@@ -14,7 +15,8 @@ over hulls instead of passing through them, and pulls once it runs out of slack.
 keep a kerbal's suit topped up with power and life support, and take the waste back to the ship.
 
 <p align="center">
-  <img src="docs/images/cable_styles.png" width="640" alt="The seven cable styles">
+  <img src="docs/images/cable_styles.png" width="720" alt="The nine cable styles">
+  <br><sub>Nine cable styles, each generated from the way it is actually made.</sub>
 </p>
 
 <p align="center">
@@ -29,11 +31,12 @@ keep a kerbal's suit topped up with power and life support, and take the waste b
 
 ### CKAN
 
-> **CKAN listing pending.** KSP Tethers has been submitted to CKAN
-> ([KSP-CKAN/NetKAN#11554](https://github.com/KSP-CKAN/NetKAN/pull/11554)) and is waiting for review. Until it
-> is listed, install it manually.
+**KSP Tethers is on CKAN.** Search for **KSP Tethers** and install; CKAN pulls in Module Manager for you and
+picks up each new release within a few hours.
 
-Once it is listed, search for **KSP Tethers** and install. CKAN pulls in Module Manager for you.
+If you have been running a manually installed copy, delete `GameData/KSPTethers` first - CKAN will not
+overwrite files it did not install. Your toolbar-app settings live in `GameData/KSPTethers/PluginData` and are
+worth keeping if you want them.
 
 ### Manual
 
@@ -49,7 +52,7 @@ Once it is listed, search for **KSP Tethers** and install. CKAN pulls in Module 
 | **KSP** | 1.12.x |
 | **Required** | Module Manager |
 | **Recommended** | ToolbarControl (lets you choose the stock launcher and/or Blizzy's toolbar) and ClickThroughBlocker |
-| **Works with** | TAC Life Support, Kerbalism and other mods that keep resources in EVA suits |
+| **Works with** | TAC Life Support, Kerbalism and other mods that keep resources in EVA suits; Principia (tethers switch to pulling with forces); KAS (winches, ports and pylons become tether points) |
 
 ---
 
@@ -73,10 +76,18 @@ Once it is listed, search for **KSP Tethers** and install. CKAN pulls in Module 
 - **Lifeline**: carries ElectricCharge, Oxygen, Food, Water and other supplies into the suit, and CO2, Waste and
   WasteWater back, for mods that keep resources in EVA suits. Kerbal-to-kerbal tethers share supplies; ship
   cables can even out resources between vessels. Optionally refuels jetpacks from the ship's MonoPropellant.
-- **Cable styles**: white umbilical, white fabric webbing, gold-silver braid, silver braid, steel wire rope,
-  hi-vis safety line and black rubber hose. One look for EVA tethers, another for ship cables, plus thickness.
-- **Toolbar app**: manage every tether and cable, pick styles, switch the lifeline and individual resources, and
-  rebind keys.
+- **Cable styles**: nine of them, each generated from the way that cable is really made - a corrugated hose
+  with a helical rib, tubular webbing in a 2/2 twill, sixteen-carrier diamond braid, six-strand lang-lay wire
+  rope with grease in the valleys - with cavity shading and a specular map baked in. Two of them are flat
+  25 mm straps rather than round cables, including a blue herringbone one in the Russian style. One look for
+  EVA tethers, another for ship cables, plus thickness.
+- **Tether points**: docking ports, claws, ladders, crewed parts and - with KAS - winches, ports and pylons
+  can be clipped to with one right-click, and two of them can be rigged together in the editor so the craft
+  launches with a cable already strung between them at whatever slack you set.
+- **Keys for ship cables**: pick a cable in the app, step through them with a key, or give a cable a key of
+  its own; the reel keys then drive it from inside the ship.
+- **Toolbar app**: manage every tether and cable, pick styles, switch the lifeline and individual resources,
+  rebind keys, and choose how tethers hold on.
 - **Auto-tether**: kerbals leaving a hatch in space are clipped to the hull beside the hatch.
 - **Persistence**: tethers and cables survive saving, loading, scene changes, vessel switching and time warp.
 
@@ -100,19 +111,40 @@ right-click a tethered kerbal from another vessel.
 end is clipped there and you are free; the cable stays between the two ships. Reel and release cables from the
 toolbar app. An untethered kerbal can click near a cable's end to unclip it and carry it somewhere else.
 
+**Rigging a cable before launch**: in the VAB or SPH, right-click a tether point and choose **Rig Cable From
+Here**, then right-click another one and choose **Rig Cable To Here**. The **Cable length** slider sets how
+much slack it launches with. Docking ports, claws, ladders, crewed parts and KAS winches, ports and pylons all
+have a tether point; add one to any other part with a one-line ModuleManager patch (see
+`Patches/KSPTethers_TetherPoints.cfg`).
+
+## Cables between ships, from the cockpit
+
+One cable at a time is **selected**, and the reel keys drive it whenever you are not flying a tethered kerbal.
+Pick it in the app's Tethers tab, step through them with the select keys, or give a cable a number on the
+Tethers tab and bind a key to that number on the Keys tab - then one press puts that cable under the reel
+keys. There is a key to release the selected cable too. Everything is unbound except "select the next cable",
+which starts on `;`.
+
 ## Toolbar app
 
-- **Tethers**: every tether and cable in the scene, with distance and length, reel buttons, release, the
-  lifeline's status and (for cables) "Share resources".
+- **Tethers**: every tether and cable in the scene, with distance, length and the pull it is under, reel
+  buttons, release, the lifeline's status and, for cables, which one the reel keys drive, its key number and
+  "Share resources".
 - **Cables**: the style for EVA tethers, the style for cables between ships, and thickness. Changes apply live.
 - **Resources**: the lifeline master switch, transfer speed, buddy sharing, the default for new cables, and a
   switch per resource. It also reports which life support mods are installed and working.
 - **Keys**: click a key and press a new one. Clashes with KSP's own bindings are flagged.
+- **Setup**: whether tethers hold on with a joint or with forces, which of Principia, KAS, ToolbarControl and
+  ClickThroughBlocker were found, and what any cheats are doing.
 
 ## Settings
 
 **Difficulty Settings > KSP Tethers** (per save): auto-tether (and only in space), physical or cosmetic tethers,
 kerbal-to-kerbal tethers, self-retracting reel, default and maximum length, clip reach and reel speed.
+
+**Difficulty Settings > KSP Tethers > Cheats** (per save): infinite length, a reel-speed multiplier, longer
+reach, a tether-strength multiplier, unbreakable tethers, and crazy physics that turns tethers into bungee
+cords. Everything there stays off until the master switch is ticked.
 
 **`KSPTethers/Settings.cfg`** (global): simulation tuning, spring frequencies, break forces, collisions,
 wrapping, the `CABLE_STYLE` list and the `TETHER_RESOURCE` list. Everything is documented in the file and can
@@ -128,7 +160,13 @@ be changed with ModuleManager against the `KSP_TETHERS` node. The app's choices 
 
 ## Compatibility notes
 
-- Works alongside KAS/KIS: they add their own modules to kerbals and do not interact with these tethers.
+- **Principia** integrates every vessel itself and writes the result over whatever PhysX worked out, so a joint
+  between two vessels is discarded and a tether would hang slack and stretch without limit. With Principia
+  installed, tethers instead pull by adding a force to the part at each end, which Principia reads and keeps.
+  The app's Setup tab can force either method.
+- **KAS/KIS** work alongside this mod. KAS winches, ports and pylons gain a tether point, and a tether clipped
+  to one leaves from the same socket KAS runs its own cable from. The two mods' links are otherwise separate:
+  a KAS cable and a tether on the same part do not interact.
 - The backpack attach point uses the `bn_jetpack01` bone. If a suit mod moves it, adjust `kerbalBone` /
   `kerbalOffset` in `Settings.cfg`.
 - Cables pull on the parts they are clipped to; clip ship cables to sturdy parts, as a flimsy part can be torn
@@ -137,10 +175,14 @@ be changed with ModuleManager against the `KSP_TETHERS` node. The app's choices 
 
 ## How it works
 
-- `TetherCore` is one tether: two `TetherEnd`s (a clip on a part, or a kerbal's backpack), the physical link (a
-  `ConfigurableJoint` with a soft spherical limit, spring set from the reduced mass and a natural frequency),
+- `TetherCore` is one tether: two `TetherEnd`s (a clip on a part, or a kerbal's backpack), the physical link,
   the reel, and the rope. Kerbal tethers are owned by `ModuleKerbalTether` (added to EVA kerbals by
   ModuleManager); cables between parts by `TetherScenario`, which saves them in the save file.
+- The link is either a `ConfigurableJoint` with a soft spherical limit, spring set from the reduced mass and a
+  natural frequency, or - for mods that integrate vessels themselves - `TetherForceLink`, which adds the same
+  pull with `Part.AddForceAtPosition`. `TetherTension` solves that as a soft constraint: it reduces to exactly
+  the spring-damper that was asked for when the ends are heavy, and falls back to the impulse that just removes
+  the separation when the spring is too stiff for the time step, so it cannot overshoot.
 - `RopeSimulation` is a Verlet/PBD solver with long-range attachments, bending constraints with a minimum bend
   radius, a spool at the anchor end so length changes never make the rope jump, and Coulomb friction. Contact
   planes for nodes and segment midpoints are found once per substep and enforced inside the solver
@@ -148,8 +190,14 @@ be changed with ModuleManager against the `KSP_TETHERS` node. The app's choices 
 - When the straight line between a tether's ends is blocked by the vessel at the far end and the rope rests
   against it, the joint moves its pivot to the rope's last contact with the hull (and shortens its reach by the
   rope already wrapped), so the physics follows the rope's real path.
-- `TubeMeshBuilder` sweeps a parallel-transported tube along a Catmull-Rom spline and adds the fittings.
-  `CablePatterns` generates seamless ribbed, braided, woven and twisted-strand textures and normal maps.
+- `TubeMeshBuilder` sweeps a parallel-transported tube along a Catmull-Rom spline and adds the fittings; a flat
+  strap uses the same sweep with an elliptical cross-section. `CablePatterns` generates each style's surface as
+  a seamless tile two circumferences long - a helical rib, a 2/2 twill, a diamond braid, a lang-lay wire rope -
+  blurs the height field for the normals and again, wider, for cavity shading, and packs the result into the
+  albedo-plus-specular map KSP's Bumped Specular shader wants. A flat strap's tile is folded round the
+  perimeter so its selvedge edges land on the strap's real edges.
+- `ModuleTetherPort` is a tether point: it finds where a cable should leave a part (a KAS socket, a named
+  transform, an attach node) and holds the editor rigging that launches a craft with a cable already strung.
 - `ResourceExchange` holds the lifeline rules; `TetherResources` applies them to suits and vessels.
 
 ## Building from source

@@ -27,6 +27,18 @@ namespace KSPTethers
         public KeyCode toggleKey;
         public KeyCode reelInKey;
         public KeyCode reelOutKey;
+        public KeyCode selectNextKey;
+        public KeyCode selectPrevKey;
+        public KeyCode releaseSelectedKey;
+        /// <summary>A key of its own for each of the first few cables; unbound by default.</summary>
+        public readonly KeyCode[] slotKeys = new KeyCode[SlotCount];
+
+        public const int SlotCount = 4;
+
+        /// <summary>The reel keys drive the selected cable whenever you are not flying a tethered kerbal.</summary>
+        public bool cableKeysFromShip = true;
+        /// <summary>Joint, forces, or whichever suits the mods that are installed.</summary>
+        public TetherLinkMode linkMode = TetherLinkMode.Auto;
 
         public string evaStyle = "umbilical";
         public string cableStyle = "steel";
@@ -50,18 +62,28 @@ namespace KSPTethers
         private TetherUserSettings()
         {
             TetherConfig cfg = TetherConfig.Instance;
-            toggleKey = cfg.toggleKey;
-            reelInKey = cfg.reelInKey;
-            reelOutKey = cfg.reelOutKey;
+            linkMode = cfg.linkMode;
+            ResetKeys(false);
         }
 
         public void ResetKeys()
+        {
+            ResetKeys(true);
+        }
+
+        private void ResetKeys(bool dirty)
         {
             TetherConfig cfg = TetherConfig.Instance;
             toggleKey = cfg.toggleKey;
             reelInKey = cfg.reelInKey;
             reelOutKey = cfg.reelOutKey;
-            MarkDirty();
+            selectNextKey = cfg.selectNextKey;
+            selectPrevKey = cfg.selectPrevKey;
+            releaseSelectedKey = KeyCode.None;
+            for (int i = 0; i < slotKeys.Length; i++)
+                slotKeys[i] = KeyCode.None;
+            if (dirty)
+                MarkDirty();
         }
 
         public bool IsResourceEnabled(ResourceRule rule)
@@ -97,6 +119,13 @@ namespace KSPTethers
                 n.AddValue("toggleKey", toggleKey.ToString());
                 n.AddValue("reelInKey", reelInKey.ToString());
                 n.AddValue("reelOutKey", reelOutKey.ToString());
+                n.AddValue("selectNextKey", selectNextKey.ToString());
+                n.AddValue("selectPrevKey", selectPrevKey.ToString());
+                n.AddValue("releaseSelectedKey", releaseSelectedKey.ToString());
+                for (int i = 0; i < slotKeys.Length; i++)
+                    n.AddValue("slotKey" + (i + 1), slotKeys[i].ToString());
+                n.AddValue("cableKeysFromShip", cableKeysFromShip.ToString());
+                n.AddValue("linkMode", linkMode.ToString());
                 n.AddValue("evaStyle", evaStyle);
                 n.AddValue("cableStyle", cableStyle);
                 n.AddValue("thickness", thickness.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
@@ -139,6 +168,13 @@ namespace KSPTethers
                 s.toggleKey = ParseKey(n.GetValue("toggleKey"), s.toggleKey);
                 s.reelInKey = ParseKey(n.GetValue("reelInKey"), s.reelInKey);
                 s.reelOutKey = ParseKey(n.GetValue("reelOutKey"), s.reelOutKey);
+                s.selectNextKey = ParseKey(n.GetValue("selectNextKey"), s.selectNextKey);
+                s.selectPrevKey = ParseKey(n.GetValue("selectPrevKey"), s.selectPrevKey);
+                s.releaseSelectedKey = ParseKey(n.GetValue("releaseSelectedKey"), s.releaseSelectedKey);
+                for (int i = 0; i < s.slotKeys.Length; i++)
+                    s.slotKeys[i] = ParseKey(n.GetValue("slotKey" + (i + 1)), s.slotKeys[i]);
+                n.TryGetValue("cableKeysFromShip", ref s.cableKeysFromShip);
+                s.linkMode = ParseLinkMode(n.GetValue("linkMode"), s.linkMode);
                 n.TryGetValue("evaStyle", ref s.evaStyle);
                 n.TryGetValue("cableStyle", ref s.cableStyle);
                 n.TryGetValue("thickness", ref s.thickness);
@@ -168,6 +204,20 @@ namespace KSPTethers
                 TetherLog.Exception("Loading user settings", e);
             }
             return s;
+        }
+
+        public static TetherLinkMode ParseLinkMode(string s, TetherLinkMode fallback)
+        {
+            if (string.IsNullOrEmpty(s))
+                return fallback;
+            try
+            {
+                return (TetherLinkMode)Enum.Parse(typeof(TetherLinkMode), s.Trim(), true);
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         private static KeyCode ParseKey(string s, KeyCode fallback)

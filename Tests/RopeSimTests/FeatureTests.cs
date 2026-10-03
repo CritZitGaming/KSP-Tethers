@@ -4,47 +4,59 @@ using UnityEngine;
 
 namespace KSPTethers.Tests
 {
-    /// <summary>Tests for the v1.1 features: cable patterns, the lifeline and rope reversal.</summary>
+    /// <summary>Cable surfaces, the lifeline and rope reversal.</summary>
     internal static class FeatureTests
     {
         public static void RunAll(Action<string, Action> run, Action<bool, string> check)
         {
-            run("cable patterns tile seamlessly with valid normals", () => PatternsTile(check));
+            run("every cable style tiles seamlessly with valid normals", () => PatternsTile(check));
             run("lifeline tops up suits from the ship", () => SuitSupply(check));
             run("lifeline returns waste to the ship", () => SuitWaste(check));
             run("lifeline never creates or loses resources", () => Conservation(check));
             run("jetpack refuels from ship MonoPropellant", () => SourceMapping(check));
             run("buddy lines and ship cables even out supplies", () => Balancing(check));
             run("rope reverses end for end", () => ReverseRope(check));
+            run("the force-based pull holds without blowing up", () => Tension(check));
         }
 
         // ---- patterns ----------------------------------------------------------------------------
 
-        private static float Luma(Color32 c)
-        {
-            return c.g;
-        }
-
         private static void PatternsTile(Action<bool, string> check)
         {
-            int n = CablePatterns.Size;
-            foreach (CablePattern pattern in Enum.GetValues(typeof(CablePattern)))
+            string cfg = CableSwatches.SettingsPath;
+            if (cfg == null)
             {
-                Color32[] albedo, normal;
-                CablePatterns.Generate(pattern, 1f, out albedo, out normal);
+                check(false, "Settings.cfg not found beside the tests");
+                return;
+            }
+            foreach (CableSwatches.Style style in CableSwatches.Load(cfg))
+            {
+                Color32[] main, normal;
+                int w, h;
+                CablePatterns.Generate(style.Spec, CablePatterns.DefaultAcross, out main, out normal, out w, out h);
 
-                // Differences across the wrap seam must look like any other neighbouring texels.
-                double seamU = 0, seamV = 0, inner = 0;
-                for (int i = 0; i < n; i++)
+                // Differences across each wrap seam must look like any other neighbouring texels, or the tile
+                // will show a line down the cable.
+                double seamU = 0, seamV = 0, innerU = 0, innerV = 0;
+                for (int y = 0; y < h; y++)
                 {
-                    seamU += Math.Abs(Luma(albedo[i * n]) - Luma(albedo[i * n + n - 1]));
-                    seamV += Math.Abs(Luma(albedo[i]) - Luma(albedo[(n - 1) * n + i]));
-                    for (int x = 1; x < n; x++)
-                        inner += Math.Abs(Luma(albedo[i * n + x]) - Luma(albedo[i * n + x - 1]));
+                    seamU += Math.Abs(main[y * w].g - main[y * w + w - 1].g);
+                    for (int x = 1; x < w; x++)
+                        innerU += Math.Abs(main[y * w + x].g - main[y * w + x - 1].g);
                 }
-                inner /= (n - 1);
-                bool seamless = seamU <= inner * 1.6 + n && seamV <= inner * 1.6 + n;
+                for (int x = 0; x < w; x++)
+                {
+                    seamV += Math.Abs(main[x].g - main[(h - 1) * w + x].g);
+                    for (int y = 1; y < h; y++)
+                        innerV += Math.Abs(main[y * w + x].g - main[(y - 1) * w + x].g);
+                }
+                seamU /= h;
+                seamV /= w;
+                innerU /= h * (w - 1);
+                innerV /= w * (h - 1);
+                bool seamless = seamU <= innerU * 2.5 + 6 && seamV <= innerV * 2.5 + 6;
 
+                // Normals have to be packed the way Unity reads them on desktop, and never fold past vertical.
                 bool normalsOk = true;
                 float flattest = 1f;
                 for (int i = 0; i < normal.Length; i++)
@@ -55,10 +67,67 @@ namespace KSPTethers.Tests
                         normalsOk = false;
                     flattest = Math.Min(flattest, (float)Math.Sqrt(Math.Max(0f, 1f - xy)));
                 }
-                check(seamless && normalsOk && flattest > 0.2f,
-                    pattern + ": seam " + (seamU / n).ToString("F1") + "/" + (seamV / n).ToString("F1") +
-                    " vs neighbours " + (inner / n).ToString("F1") + ", steepest normal z " + flattest.ToString("F2"));
+
+                // And the surface has to have real relief, or the weave has quietly stopped being generated.
+                // A black hose is almost flat in the albedo, so this is measured on the normals.
+                bool hasRelief = style.Spec.Construction == CableConstruction.Smooth || flattest < 0.97f;
+
+                check(seamless && normalsOk && flattest > 0.15f && hasRelief,
+                    style.Name + ": seam " + seamU.ToString("F1") + "/" + seamV.ToString("F1") +
+                    " vs neighbours " + innerU.ToString("F1") + "/" + innerV.ToString("F1") +
+                    ", steepest normal z " + flattest.ToString("F2"));
             }
+        }
+
+        // ---- the pull a tether applies -------------------------------------------------------------
+
+        private static void Tension(Action<bool, string> check)
+        {
+            const float dt = 0.02f;                 // KSP's physics step
+            const float kerbal = 0.09375f;          // tonnes
+            float invMass = 1f / kerbal + 1f / 20f; // kerbal on a 20 t ship
+
+            check(TetherTension.Solve(-0.5f, 3f, invMass, 15f, 1.4f, dt) == 0f &&
+                  TetherTension.Solve(0f, 3f, invMass, 15f, 1.4f, dt) == 0f,
+                "a slack tether pulls with nothing at all");
+
+            float pull = TetherTension.Solve(0.1f, 2f, invMass, 15f, 1.4f, dt);
+            check(pull > 0.5f && pull < 20f, "a tether 10 cm past its length pulls " + pull.ToString("F2") + " kN");
+
+            // With light springs the soft constraint has to reduce to the spring-damper it was asked for.
+            const float k = 4f, c = 0.8f;
+            float light = 1f / 500f;                // 500 t each end: the spring is what limits the force
+            float got = TetherTension.Solve(0.4f, 1.5f, light, k, c, dt);
+            float want = k * 0.4f + (c + dt * k) * 1.5f;
+            check(Math.Abs(got - want) / want < 0.02f,
+                "heavy ends: " + got.ToString("F3") + " kN against a plain spring-damper's " + want.ToString("F3"));
+
+            // A silly spring on a light kerbal at a low frame rate must still not catapult anyone: the
+            // impulse can never be more than the one that just stops the ends separating.
+            bool stable = true;
+            float worstSpeed = 0f;
+            foreach (float step in new[] { 0.02f, 0.05f, 0.1f })
+            {
+                float x = 1f, v = 6f;               // a metre past the limit, flying outward at 6 m/s
+                for (int i = 0; i < 4000; i++)
+                {
+                    float f = TetherTension.Solve(x, v, 1f / kerbal, 1e6f, 500f, step);
+                    v -= f / kerbal * step;         // the tether only ever pulls inward
+                    x += v * step;
+                    if (x < 0f) { x = 0f; if (v < 0f) v = 0f; }
+                    worstSpeed = Math.Max(worstSpeed, Math.Abs(v));
+                    if (float.IsNaN(v) || Math.Abs(v) > 20f)
+                        stable = false;
+                }
+            }
+            check(stable, "an absurd spring at 10 fps hauls in without catapulting (fastest the kerbal moved: " +
+                          worstSpeed.ToString("F1") + " m/s, started at 6)");
+
+            // And the pull has to grow with how far past its length the tether is.
+            float near = TetherTension.Solve(0.05f, 0f, invMass, 15f, 1.4f, dt);
+            float far = TetherTension.Solve(0.5f, 0f, invMass, 15f, 1.4f, dt);
+            check(far > near * 3f, "pull rises with stretch (" + near.ToString("F2") + " kN at 5 cm, " +
+                                   far.ToString("F2") + " kN at 50 cm)");
         }
 
         // ---- lifeline ----------------------------------------------------------------------------

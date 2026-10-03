@@ -110,17 +110,8 @@ namespace KSPTethers
             if (!HighLogic.LoadedSceneIsFlight)
                 return;
 
-            TetherConfig cfg = TetherConfig.Instance;
-            TetherGameSettings gs = TetherGameSettings.Current;
             eva = part.FindModuleImplementing<KerbalEVA>();
-
-            var range = Fields[nameof(tetherLength)].uiControlFlight as UI_FloatRange;
-            if (range != null)
-            {
-                range.minValue = cfg.minLength;
-                range.maxValue = Mathf.Max(gs.maxLength, cfg.minLength + 1f);
-            }
-            tetherLength = Mathf.Clamp(tetherLength, cfg.minLength, Mathf.Max(gs.maxLength, cfg.minLength));
+            RefreshLengthRange();
 
             audioFx = new TetherAudio(part.transform);
             targeting = new TetherTargeting(this);
@@ -137,6 +128,23 @@ namespace KSPTethers
 
             started = true;
             UpdatePaw(true);
+        }
+
+        /// <summary>Keeps the length slider's range in step with the settings, including the cheats.</summary>
+        private void RefreshLengthRange()
+        {
+            TetherConfig cfg = TetherConfig.Instance;
+            float maxLen = Mathf.Max(TetherCheatSettings.Current.MaxLength(TetherGameSettings.Current.maxLength),
+                cfg.minLength + 1f);
+            var range = Fields[nameof(tetherLength)].uiControlFlight as UI_FloatRange;
+            if (range != null)
+            {
+                range.minValue = cfg.minLength;
+                range.maxValue = maxLen;
+                // A slider that runs to a hundred kilometres needs coarser steps than half a metre.
+                range.stepIncrement = maxLen > 200f ? 50f : 0.5f;
+            }
+            tetherLength = Mathf.Clamp(tetherLength, cfg.minLength, maxLen);
         }
 
         private void OnDestroy()
@@ -277,6 +285,8 @@ namespace KSPTethers
 
         private void UpdatePaw(bool force)
         {
+            if (force)
+                RefreshLengthRange();
             bool tethered = core != null;
             if (!tethered)
             {
@@ -437,9 +447,10 @@ namespace KSPTethers
                 return info;
             }
 
+            float reach = gs.clipReach * TetherCheatSettings.Current.ClipReach;
             float d = Vector3.Distance(KerbalEndWorld, point);
-            bool inReach = d <= gs.clipReach;
-            string tooFar = "Out of reach (" + d.ToString("F1") + " m, reach is " + gs.clipReach.ToString("F1") + " m)";
+            bool inReach = d <= reach;
+            string tooFar = "Out of reach (" + d.ToString("F1") + " m, reach is " + reach.ToString("F1") + " m)";
             bool targetIsKerbal = p.vessel.isEVA;
             ModuleKerbalTether other = targetIsKerbal ? p.FindModuleImplementing<ModuleKerbalTether>() : null;
 
@@ -554,8 +565,8 @@ namespace KSPTethers
             Vector3 kp = KerbalEndWorld;
             Vector3 point, normal;
             // Clip onto the hull right beside the hatch the kerbal just came out of.
-            if (!RaycastPartSurface(from, kp, from.transform.position, out point, out normal) &&
-                !ClosestPointOnPart(from, kp, out point, out normal))
+            if (!TetherGeometry.RaycastPartSurface(from, kp, from.transform.position, out point, out normal) &&
+                !TetherGeometry.ClosestPointOnPart(from, kp, out point, out normal))
             {
                 point = from.airlock != null ? from.airlock.position : from.transform.position;
                 normal = kp - point;
@@ -568,8 +579,9 @@ namespace KSPTethers
             if (!started)
                 return false;
             TetherGameSettings gs = TetherGameSettings.Current;
+            float reach = gs.clipReach * TetherCheatSettings.Current.ClipReach;
             Vector3 from = KerbalEndWorld;
-            int n = Physics.OverlapSphereNonAlloc(from, gs.clipReach, NearBuffer, PartLayerMask, QueryTriggerInteraction.Ignore);
+            int n = Physics.OverlapSphereNonAlloc(from, reach, NearBuffer, PartLayerMask, QueryTriggerInteraction.Ignore);
 
             Part best = null;
             Vector3 bestPoint = Vector3.zero;
@@ -583,7 +595,7 @@ namespace KSPTethers
                 Part p = FlightGlobals.GetPartUpwardsCached(c.gameObject);
                 if (p == null || p == part || p == exclude || p.vessel == null || p.vessel == vessel || p.vessel.isEVA)
                     continue;
-                Vector3 cp = SupportsClosestPoint(c) ? c.ClosestPoint(from) : c.ClosestPointOnBounds(from);
+                Vector3 cp = TetherGeometry.SupportsClosestPoint(c) ? c.ClosestPoint(from) : c.ClosestPointOnBounds(from);
                 float d = (cp - from).sqrMagnitude;
                 if (d < bestD)
                 {
@@ -596,12 +608,12 @@ namespace KSPTethers
             if (best == null)
             {
                 if (announce)
-                    Post("Nothing within " + gs.clipReach.ToString("F1") + " m to clip onto");
+                    Post("Nothing within " + reach.ToString("F1") + " m to clip onto");
                 return false;
             }
 
             Vector3 point, normal;
-            if (!RaycastPartSurface(best, from, bestPoint, out point, out normal))
+            if (!TetherGeometry.RaycastPartSurface(best, from, bestPoint, out point, out normal))
             {
                 point = bestPoint;
                 normal = from - bestPoint;
@@ -625,7 +637,7 @@ namespace KSPTethers
             TetherGameSettings gs = TetherGameSettings.Current;
             TetherEnd a = OwnEnd;
             TetherEnd b = TetherEnd.AtPoint(target, worldPoint, worldNormal);
-            float maxLen = Mathf.Max(gs.maxLength, cfg.minLength);
+            float maxLen = Mathf.Max(TetherCheatSettings.Current.MaxLength(gs.maxLength), cfg.minLength);
             float dist = Vector3.Distance(a.WorldPos, b.WorldPos);
             tetherLength = Mathf.Clamp(Mathf.Max(gs.defaultLength, dist + 0.5f), cfg.minLength, maxLen);
             float rope = Mathf.Clamp(dist * (1f + cfg.slackFactor) + cfg.slackBase, cfg.minLength, tetherLength);
@@ -845,73 +857,6 @@ namespace KSPTethers
         }
 
         // ---- helpers -----------------------------------------------------------------------------
-
-        private static bool SupportsClosestPoint(Collider c)
-        {
-            if (c is BoxCollider || c is SphereCollider || c is CapsuleCollider)
-                return true;
-            return c is MeshCollider mc && mc.convex;
-        }
-
-        private static bool RaycastPartSurface(Part p, Vector3 from, Vector3 toward, out Vector3 point, out Vector3 normal)
-        {
-            point = Vector3.zero;
-            normal = Vector3.up;
-            Vector3 dir = toward - from;
-            float len = dir.magnitude;
-            if (len < 1e-4f)
-                return false;
-            var ray = new Ray(from, dir / len);
-            Collider[] cols = p.GetPartColliders();
-            if (cols == null)
-                return false;
-            float best = float.MaxValue;
-            bool found = false;
-            foreach (Collider c in cols)
-            {
-                if (c == null || !c.enabled || c.isTrigger)
-                    continue;
-                RaycastHit hit;
-                if (c.Raycast(ray, out hit, len + 2f) && hit.distance < best)
-                {
-                    best = hit.distance;
-                    point = hit.point;
-                    normal = hit.normal;
-                    found = true;
-                }
-            }
-            return found;
-        }
-
-        private static bool ClosestPointOnPart(Part p, Vector3 from, out Vector3 point, out Vector3 normal)
-        {
-            point = Vector3.zero;
-            normal = Vector3.up;
-            Collider[] cols = p.GetPartColliders();
-            if (cols == null)
-                return false;
-            float best = float.MaxValue;
-            bool found = false;
-            foreach (Collider c in cols)
-            {
-                if (c == null || !c.enabled || c.isTrigger)
-                    continue;
-                Vector3 cp = SupportsClosestPoint(c) ? c.ClosestPoint(from) : c.ClosestPointOnBounds(from);
-                float d = (cp - from).sqrMagnitude;
-                if (d < best)
-                {
-                    best = d;
-                    point = cp;
-                    found = true;
-                }
-            }
-            if (!found)
-                return false;
-            normal = from - point;
-            if (normal.sqrMagnitude < 1e-6f)
-                normal = point - p.transform.position;
-            return true;
-        }
 
         private static void Post(string message)
         {

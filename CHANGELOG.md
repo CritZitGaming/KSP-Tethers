@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.1.0
+
+- **Works with Principia.** Principia integrates every vessel itself and writes the result over whatever PhysX
+  worked out, so a joint between two vessels is thrown away and tethers never pulled: they hung slack and
+  stretched without limit. Tethers can now hold on by adding a force to the part at each end instead, which
+  Principia reads and keeps. That happens automatically when Principia is installed; the toolbar app's Setup
+  tab can force either method. The pull is a soft constraint, so it matches the old spring exactly for ordinary
+  loads and cannot catapult a kerbal however stiff, heavy or slow the situation gets. A tether whose ends keep
+  drifting apart while it is supposed to be holding now lets go instead of drawing a line to infinity.
+- **New cable surfaces.** Every style is generated from its real construction: a corrugated hose with a helical
+  rib, tubular webbing woven in a 2/2 twill, sixteen-carrier diamond braid, and six-strand lang-lay wire rope
+  with grease in the valleys, each with cavity shading baked in and a specular map. The maps are twice the
+  resolution and the relief is real rather than a tinted pattern.
+- **Flat tethers.** Two new styles, **Blue Flat Tether** (herringbone weave with woven-in stripes, in the
+  Russian style) and **White Flat Tether**, are flat 25 mm straps rather than round cables: the mesh has a flat
+  cross-section and the weave wraps round it so the selvedge edges land on the strap's real edges.
+- **Tether points.** Docking ports, claws, ladders, crewed parts and - with KAS installed - winches, ports and
+  pylons gain a tether point. A kerbal can clip on with one right-click, and the cable leaves a KAS part from
+  the same socket KAS runs its own cable from.
+- **Cables rigged in the editor.** Pick two tether points in the VAB or SPH, choose "Rig Cable From Here" on
+  one and "Rig Cable To Here" on the other, and set the length: the craft launches with the cable already
+  strung between them, as slack as you like. The length can be changed in flight too.
+- **Keys for ship-to-ship cables.** One cable at a time is selected - in the app, with next/previous keys, or
+  with a key bound to that cable's own slot - and the ordinary reel keys drive it whenever you aren't flying a
+  tethered kerbal. There is also a key to release the selected cable. A kerbal on EVA still owns the reel keys
+  for their own tether.
+- **Cheats.** Difficulty Settings > KSP Tethers > Cheats: infinite length, a reel-speed multiplier, longer
+  reach, a tether-strength multiplier, unbreakable tethers, and crazy physics that turns them into bungee
+  cords. All off until the master switch is ticked.
+- The app has a Setup tab showing which of Principia, KAS, ToolbarControl and ClickThroughBlocker were found,
+  and what any cheats are doing.
+- `CABLE_STYLE` nodes have changed with the new surfaces: `construction` replaces `pattern` (the old names
+  still work), the generator's settings moved into a `TEXTURE` sub-node, and `gloss` replaces `shininess`,
+  `specular` and `bump`. A patch written against the old keys will still load, but will no longer change the
+  look; see the comments in `Settings.cfg`.
+
 ## 1.0.0
 
 First release.
